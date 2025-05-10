@@ -107,20 +107,20 @@ def run_mlp_pipeline(X_train_resampled, y_train_resampled, X_test_processed, y_t
     fpr_mlp, tpr_mlp, _ = roc_curve(y_test, y_proba_mlp)
     plt.plot(fpr_mlp, tpr_mlp, label=f'MLP (AUC-ROC = {roc_auc_mlp:.2f})')
     plt.plot([0, 1], [0, 1], 'k--')
-    plt.xlabel('False Positive Rate');
-    plt.ylabel('True Positive Rate');
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
     plt.title('MLP ROC Curve')
-    plt.legend(loc='lower right');
+    plt.legend(loc='lower right')
     plt.grid(True)
     save_plot_func(fig_roc_mlp, gcs_bucket_name, gcs_output_prefix, "mlp_roc_curve")
 
     fig_pr_mlp = plt.figure(figsize=(8, 6))
     precision_mlp_curve, recall_mlp_curve, _ = precision_recall_curve(y_test, y_proba_mlp)
     plt.plot(recall_mlp_curve, precision_mlp_curve, label=f'MLP (AUC-PR = {pr_auc_mlp:.2f})')
-    plt.xlabel('Recall (Sensitivity)');
-    plt.ylabel('Precision');
+    plt.xlabel('Recall (Sensitivity)')
+    plt.ylabel('Precision')
     plt.title('MLP Precision-Recall Curve')
-    plt.legend(loc='lower left');
+    plt.legend(loc='lower left')
     plt.grid(True)
     save_plot_func(fig_pr_mlp, gcs_bucket_name, gcs_output_prefix, "mlp_pr_curve")
 
@@ -186,4 +186,3 @@ def run_mlp_pipeline(X_train_resampled, y_train_resampled, X_test_processed, y_t
         custom_print_func("Not enough background samples for SHAP KernelExplainer for MLP.")
 
     custom_print_func("\n--- MLP Pipeline Complete ---")
-
