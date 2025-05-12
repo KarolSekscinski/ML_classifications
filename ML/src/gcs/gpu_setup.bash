@@ -13,7 +13,7 @@ REPO_PATH="ML_classifications/ML" # Adjust if your repo is cloned elsewhere
 
 # Define the path to your requirements file (containing torch+cuda, rtdl, etc.)
 REQUIREMENTS_FILE="$REPO_PATH/requirements.txt" # Adjust path as needed
-REQUIREMENTS_FILE_GPU="$REPO_PATH/src/gcs/gpu.txt"
+REQUIREMENTS_FILE_GPU="$REPO_PATH/gpu.txt"
 
 # Define GCS URIs for the metadata files
 # Assumes the original preprocessing output (for MLP) is under 'NeurIPS/metadata'
@@ -78,7 +78,7 @@ python "$MLP_SCRIPT_PATH" \
     --metadata-uri "$METADATA_URI_OHE" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
     --epochs 50 \
-    --batch-size 1024 \
+    --batch-size 512 \
     --learning-rate 1e-4 \
     --mlp-hidden-dims "256,128,64" \
     --run-shap # Add this flag to compute SHAP values
@@ -94,7 +94,7 @@ python "$FT_SCRIPT_PATH" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \
     --epochs 50 \
-    --batch-size 512 \
+    --batch-size 256 \
     --learning-rate 1e-4 \
     --ft-n-blocks 3 \
     --ft-d-token 192 \
