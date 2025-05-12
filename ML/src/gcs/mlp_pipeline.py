@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import torchmetrics # For efficient metric calculation on tensors
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import (confusion_matrix, RocCurveDisplay, PrecisionRecallDisplay)
 from sklearn.model_selection import train_test_split # For validation split if needed
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -219,7 +219,6 @@ def plot_evaluation_charts(y_true_np, y_pred_proba_np, cm, model_name, gcs_bucke
 
 
 def perform_shap_analysis(model, X_train_tensor, X_test_tensor, feature_names, device, gcs_bucket, gcs_output_prefix, sample_size=100):
-    """Performs SHAP analysis using DeepExplainer and saves summary plot."""
     logging.info("--- SHAP Analysis (MLP - DeepExplainer) ---")
     logging.info(f"Using background sample size: {min(sample_size, X_train_tensor.shape[0])}")
     logging.info(f"Explaining sample size: {min(sample_size, X_test_tensor.shape[0])}")
@@ -227,46 +226,56 @@ def perform_shap_analysis(model, X_train_tensor, X_test_tensor, feature_names, d
     try:
         model.eval() # Ensure model is in eval mode
 
-        # Sample background data (needs to be a tensor on the correct device)
         indices_bg = np.random.choice(X_train_tensor.shape[0], min(sample_size, X_train_tensor.shape[0]), replace=False)
         X_train_summary = X_train_tensor[indices_bg].to(device)
 
-        # Sample data to explain
         indices_test = np.random.choice(X_test_tensor.shape[0], min(sample_size, X_test_tensor.shape[0]), replace=False)
         X_test_sample = X_test_tensor[indices_test].to(device)
 
         start_shap_time = time.time()
         logging.info("Initializing SHAP DeepExplainer...")
-        # DeepExplainer needs the model and background data
         explainer = shap.DeepExplainer(model, X_train_summary)
 
         logging.info(f"Calculating SHAP values for {X_test_sample.shape[0]} test samples...")
-        shap_values_tensor = explainer.shap_values(X_test_sample)
+        shap_values_output = explainer.shap_values(X_test_sample) # Get the raw output
         end_shap_time = time.time()
         logging.info(f"SHAP values calculated in {end_shap_time - start_shap_time:.2f} seconds.")
 
-        # shap_values_tensor might have dimensions corresponding to output logits.
-        # If output_dim is 1 (BCEWithLogitsLoss), shap_values_tensor likely has shape [n_samples, n_features].
-        # Convert tensors to numpy arrays on CPU for plotting
-        shap_values_np = shap_values_tensor.cpu().numpy()
-        X_test_sample_np = X_test_sample.cpu().numpy()
+        # Robustly handle SHAP output type
+        shap_values_focused = None
+        if isinstance(shap_values_output, list):
+            # For binary MLP with 1 output logit, DeepExplainer often gives a list with 1 item.
+            # If model had 2 output logits (e.g., for CrossEntropyLoss), shap_values_output[1] might be for positive class.
+            if len(shap_values_output) > 0:
+                shap_values_focused = shap_values_output[0] # Assuming first/only item is for the single logit
+                if len(shap_values_output) > 1:
+                     logging.warning(f"SHAP explainer returned a list of {len(shap_values_output)} items. Using the first one.")
+            else:
+                raise ValueError("SHAP explainer returned an empty list.")
+        else: # Assuming it's a single tensor or numpy array
+            shap_values_focused = shap_values_output
 
-        # Create DataFrame for plotting with feature names
+        # Now convert the focused SHAP values to numpy
+        if torch.is_tensor(shap_values_focused):
+            shap_values_np = shap_values_focused.cpu().numpy()
+        elif isinstance(shap_values_focused, np.ndarray):
+            shap_values_np = shap_values_focused # It's already a NumPy array
+        else:
+            raise TypeError(f"Unexpected type for SHAP values after focusing: {type(shap_values_focused)}")
+
+        # X_test_sample is definitely a tensor, so .cpu().numpy() is safe
+        X_test_sample_np = X_test_sample.cpu().numpy()
         X_test_sample_df = pd.DataFrame(X_test_sample_np, columns=feature_names)
 
-        # Generate and save summary plot
         fig_shap, ax_shap = plt.subplots()
         shap.summary_plot(shap_values_np, X_test_sample_df, plot_type="dot", show=False)
         plt.title("SHAP Summary Plot (MLP)")
-        # Workaround for tight_layout error with summary_plot in some versions
         try:
             plt.tight_layout()
-        except:
+        except Exception: # Can sometimes fail with certain backends/versions
             logging.warning("Could not apply tight_layout() to SHAP plot.")
-            pass
         save_plot_to_gcs(fig_shap, gcs_bucket, f"{gcs_output_prefix}/plots/mlp_shap_summary.png")
 
-        # Calculate mean absolute SHAP values
         mean_abs_shap = np.mean(np.abs(shap_values_np), axis=0)
         feature_importance = pd.DataFrame({'feature': feature_names, 'mean_abs_shap': mean_abs_shap})
         feature_importance = feature_importance.sort_values('mean_abs_shap', ascending=False)
@@ -276,6 +285,8 @@ def perform_shap_analysis(model, X_train_tensor, X_test_tensor, feature_names, d
 
     except Exception as e:
         logging.error(f"Failed during SHAP analysis: {e}")
+        import traceback
+        logging.error(traceback.format_exc()) # Log the full traceback for better debugging
         return None, None
 
 # --- Main Execution ---
