@@ -1,188 +1,449 @@
-import time
-import pickle
+# mlp_pipeline.py
+import argparse
+import logging
 import pandas as pd
 import numpy as np
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.metrics import (
-    classification_report, confusion_matrix, roc_auc_score, average_precision_score,
-    roc_curve, precision_recall_curve, accuracy_score, precision_score,
-    recall_score, f1_score
-)
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import torchmetrics # For efficient metric calculation on tensors
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import train_test_split # For validation split if needed
 import matplotlib.pyplot as plt
+import seaborn as sns
 import shap
+import time
+from io import BytesIO, StringIO
+import json
+import os
 
+# Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
+import gcs_utils
 
-# Assuming gcs_utils contains custom_print, save_plot_to_gcs, upload_bytes_to_gcs
-# These would be imported in the main script and passed as arguments.
+# --- Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+plt.style.use('seaborn-v0_8-darkgrid')
 
-def run_mlp_pipeline(X_train_resampled, y_train_resampled, X_test_processed, y_test,
-                     processed_feature_names, gcs_bucket_name, gcs_output_prefix,
-                     custom_print_func, save_plot_func, upload_bytes_func):
-    """
-    Runs the MLP model training, tuning, evaluation, and SHAP interpretation.
-    """
-    custom_print_func("\n--- MLP Model Training and Hyperparameter Tuning ---")
+# --- Helper Functions (Adapted for PyTorch & GCS) ---
 
-    # Define the parameter grid for MLP
-    # Note: This is a basic grid. For a full run, you might explore more layers, neurons, and solvers.
-    # 'adam' solver is often a good default. 'alpha' is for L2 regularization.
-    param_grid_mlp = {
-        'hidden_layer_sizes': [(50,), (100,), (50, 25)],  # e.g., one layer of 50, one of 100, two layers
-        'activation': ['relu', 'tanh'],
-        'solver': ['adam'],  # 'sgd' and 'lbfgs' are other options
-        'alpha': [0.0001, 0.001, 0.01],  # L2 penalty (regularization term) parameter
-        'learning_rate_init': [0.001, 0.01],
-        'max_iter': [300, 500],  # Max iterations for solver
-        'early_stopping': [True],  # To prevent overfitting and speed up if convergence is slow
-        'n_iter_no_change': [10]  # Number of iterations with no improvement to trigger early stopping
-    }
-    # For quicker demo, reduce grid:
-    param_grid_mlp_demo = {
-        'hidden_layer_sizes': [(50,)],
-        'activation': ['relu'],
-        'alpha': [0.001],
-        'learning_rate_init': [0.001],
-        'max_iter': [200],  # Reduced for faster demo
-        'early_stopping': [True],
-        'n_iter_no_change': [10]
-    }
-
-    cv_stratified = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)  # Reduced folds for speed
-
-    grid_search_mlp = GridSearchCV(
-        estimator=MLPClassifier(random_state=42),
-        param_grid=param_grid_mlp_demo,  # Using demo grid for speed; use param_grid_mlp for full search
-        scoring='average_precision',
-        cv=cv_stratified,
-        verbose=1,
-        n_jobs=-1
-    )
-
-    custom_print_func("Starting GridSearchCV for MLP...")
-    start_time_mlp_train = time.time()
-    grid_search_mlp.fit(X_train_resampled, y_train_resampled)
-    mlp_training_time = time.time() - start_time_mlp_train
-    best_mlp_model = grid_search_mlp.best_estimator_
-
-    custom_print_func("\nBest MLP Parameters found by GridSearchCV:")
-    custom_print_func(grid_search_mlp.best_params_)
-    custom_print_func(f"Best MLP Average Precision (PR AUC) score during CV: {grid_search_mlp.best_score_:.4f}")
-    custom_print_func(f"MLP Training Time (GridSearchCV): {mlp_training_time:.2f} seconds")
-
-    # --- Evaluate Best MLP Model on Test Set ---
-    custom_print_func("\n--- Evaluating Best MLP Model on Test Set ---")
-    y_pred_mlp = best_mlp_model.predict(X_test_processed)
-    y_proba_mlp = best_mlp_model.predict_proba(X_test_processed)[:, 1]
-
-    accuracy_mlp = accuracy_score(y_test, y_pred_mlp)
-    precision_mlp_fraud = precision_score(y_test, y_pred_mlp, pos_label=1, zero_division=0)
-    recall_mlp_fraud = recall_score(y_test, y_pred_mlp, pos_label=1, zero_division=0)  # Sensitivity
-    f1_mlp_fraud = f1_score(y_test, y_pred_mlp, pos_label=1, zero_division=0)
-
-    custom_print_func("\nMLP Detailed Metrics on Test Set:")
-    custom_print_func(f"Accuracy: {accuracy_mlp:.4f}")
-    custom_print_func(f"Precision (fraud): {precision_mlp_fraud:.4f}")
-    custom_print_func(f"Recall/Sensitivity (fraud): {recall_mlp_fraud:.4f}")
-    custom_print_func(f"F1-score (fraud): {f1_mlp_fraud:.4f}")
-
+def load_data_from_gcs(gcs_bucket, gcs_path, feature_names=None):
+    """Loads CSV data from GCS into a pandas DataFrame."""
+    # (Identical to CPU scripts - could be in a shared utils file)
+    logging.info(f"Loading data from: gs://{gcs_bucket}/{gcs_path}")
     try:
-        report_mlp_str = classification_report(y_test, y_pred_mlp, target_names=['Legit (0)', 'Fraud (1)'],
-                                               zero_division=0)
-        custom_print_func("\nMLP Classification Report on Test Set:\n" + report_mlp_str)
-    except ValueError:
-        report_mlp_str = classification_report(y_test, y_pred_mlp, zero_division=0)
-        custom_print_func(
-            "\nMLP Classification Report on Test Set (single class in y_pred or y_true):\n" + report_mlp_str)
-
-    cm_mlp = confusion_matrix(y_test, y_pred_mlp)
-    custom_print_func("MLP Confusion Matrix on Test Set:\n" + str(cm_mlp))
-
-    roc_auc_mlp = roc_auc_score(y_test, y_proba_mlp)
-    pr_auc_mlp = average_precision_score(y_test, y_proba_mlp)
-    custom_print_func(f"\nMLP AUC-ROC on Test Set: {roc_auc_mlp:.4f}")
-    custom_print_func(f"MLP AUC-PR (Average Precision) on Test Set: {pr_auc_mlp:.4f}")
-
-    fig_roc_mlp = plt.figure(figsize=(8, 6))
-    fpr_mlp, tpr_mlp, _ = roc_curve(y_test, y_proba_mlp)
-    plt.plot(fpr_mlp, tpr_mlp, label=f'MLP (AUC-ROC = {roc_auc_mlp:.2f})')
-    plt.plot([0, 1], [0, 1], 'k--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('MLP ROC Curve')
-    plt.legend(loc='lower right')
-    plt.grid(True)
-    save_plot_func(fig_roc_mlp, gcs_bucket_name, gcs_output_prefix, "mlp_roc_curve")
-
-    fig_pr_mlp = plt.figure(figsize=(8, 6))
-    precision_mlp_curve, recall_mlp_curve, _ = precision_recall_curve(y_test, y_proba_mlp)
-    plt.plot(recall_mlp_curve, precision_mlp_curve, label=f'MLP (AUC-PR = {pr_auc_mlp:.2f})')
-    plt.xlabel('Recall (Sensitivity)')
-    plt.ylabel('Precision')
-    plt.title('MLP Precision-Recall Curve')
-    plt.legend(loc='lower left')
-    plt.grid(True)
-    save_plot_func(fig_pr_mlp, gcs_bucket_name, gcs_output_prefix, "mlp_pr_curve")
-
-    # --- Save MLP Model to GCS ---
-    custom_print_func("\nSaving MLP model to GCS...")
-    try:
-        model_bytes = pickle.dumps(best_mlp_model)
-        model_blob_name = f"{gcs_output_prefix}/models/best_mlp_model.pkl"
-        upload_bytes_func(gcs_bucket_name, model_bytes, model_blob_name, content_type='application/octet-stream')
+        data_bytes = gcs_utils.download_blob_to_memory(gcs_bucket, gcs_path)
+        if data_bytes is None:
+            raise FileNotFoundError(f"Could not download GCS file: gs://{gcs_bucket}/{gcs_path}")
+        df = pd.read_csv(BytesIO(data_bytes))
+        if feature_names is not None and not df.columns.equals(pd.Index(feature_names)):
+             if len(feature_names) == len(df.columns):
+                 logging.warning(f"Assigning provided feature names to loaded data from {gcs_path}.")
+                 df.columns = feature_names
+             else:
+                 logging.error(f"Feature name count ({len(feature_names)}) does not match column count ({len(df.columns)}) in {gcs_path}.")
+        logging.info(f"Data loaded successfully from gs://{gcs_bucket}/{gcs_path}. Shape: {df.shape}")
+        return df
     except Exception as e:
-        custom_print_func(f"ERROR saving MLP model to GCS: {e}")
+        logging.error(f"Error loading data from gs://{gcs_bucket}/{gcs_path}: {e}")
+        raise
 
-    # --- MLP Interpretability with SHAP ---
-    custom_print_func("\nMLP Interpretability using SHAP:")
-    custom_print_func("Note: SHAP with KernelExplainer for MLP can be computationally intensive.")
+def save_plot_to_gcs(fig, gcs_bucket, gcs_blob_name):
+    """Saves a matplotlib figure to GCS as PNG."""
+    # (Identical to CPU scripts)
+    logging.info(f"Saving plot to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+    try:
+        buf = BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        plot_bytes = buf.read()
+        gcs_utils.upload_bytes_to_gcs(gcs_bucket, plot_bytes, gcs_blob_name, content_type='image/png')
+        logging.info(f"Plot successfully saved to gs://{gcs_bucket}/{gcs_blob_name}")
+        plt.close(fig)
+    except Exception as e:
+        logging.error(f"ERROR saving plot to GCS ({gcs_blob_name}): {e}")
+        plt.close(fig)
 
-    if processed_feature_names:
-        X_train_shap_background_df = pd.DataFrame(X_train_resampled, columns=processed_feature_names)
-        X_test_shap_sample_df = pd.DataFrame(X_test_processed, columns=processed_feature_names)
-    else:
-        X_train_shap_background_df = X_train_resampled
-        X_test_shap_sample_df = X_test_processed
-        custom_print_func("Warning: Feature names not available for SHAP plots; using column indices.")
+def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
+    """Saves a PyTorch model state dictionary to GCS."""
+    logging.info(f"Saving model state_dict to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+    try:
+        with BytesIO() as buf:
+            torch.save(model_state_dict, buf)
+            buf.seek(0)
+            model_bytes = buf.read()
+        gcs_utils.upload_bytes_to_gcs(gcs_bucket, model_bytes, gcs_blob_name, content_type='application/octet-stream')
+        logging.info(f"Model state_dict successfully saved to gs://{gcs_bucket}/{gcs_blob_name}")
+    except Exception as e:
+        logging.error(f"ERROR saving model state_dict to GCS ({gcs_blob_name}): {e}")
 
-    # For MLPs, KernelExplainer is generally used. It's model-agnostic.
-    # Sample the background data (usually from training set)
-    nsamples_background = min(100, X_train_shap_background_df.shape[0])
-    if nsamples_background > 0:
-        background_data_mlp = shap.sample(X_train_shap_background_df, nsamples_background, random_state=42)
+# --- PyTorch Model Definition ---
+class SimpleMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dims, output_dim=1, dropout_rate=0.3):
+        super().__init__()
+        layers = []
+        last_dim = input_dim
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(last_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(hidden_dim)) # Batch norm often helps
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_rate))
+            last_dim = hidden_dim
+        layers.append(nn.Linear(last_dim, output_dim))
+        # No final activation here, as BCEWithLogitsLoss includes sigmoid
+
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.network(x)
+
+# --- Training & Evaluation Functions ---
+
+def train_epoch(model, loader, criterion, optimizer, device, epoch_num):
+    model.train()
+    total_loss = 0.0
+    start_time = time.time()
+    for i, (inputs, targets) in enumerate(loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        # Ensure target is float and has the right shape for BCEWithLogitsLoss
+        targets = targets.float().unsqueeze(1)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        if (i + 1) % 100 == 0: # Log progress every 100 batches
+             logging.info(f'Epoch {epoch_num}, Batch {i+1}/{len(loader)}, Loss: {loss.item():.4f}')
+
+    avg_loss = total_loss / len(loader)
+    epoch_duration = time.time() - start_time
+    logging.info(f'Epoch {epoch_num} Training Summary: Average Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f}s')
+    return avg_loss, epoch_duration
+
+def evaluate_model(model, loader, criterion, device, num_classes=2):
+    model.eval()
+    total_loss = 0.0
+    all_preds = []
+    all_targets = []
+
+    # Initialize torchmetrics metrics, move them to the correct device
+    metrics_collection = torchmetrics.MetricCollection({
+        'accuracy': torchmetrics.Accuracy(task="binary").to(device),
+        'precision': torchmetrics.Precision(task="binary").to(device),
+        'recall': torchmetrics.Recall(task="binary").to(device),
+        'f1': torchmetrics.F1Score(task="binary").to(device),
+        'roc_auc': torchmetrics.AUROC(task="binary").to(device),
+        'pr_auc': torchmetrics.AveragePrecision(task="binary").to(device)
+    }).to(device)
+
+
+    with torch.no_grad():
+        for inputs, targets in loader:
+            inputs, targets = inputs.to(device), targets.to(device)
+            targets_float = targets.float().unsqueeze(1) # For loss calculation
+            targets_int = targets.int() # For torchmetrics
+
+            outputs_logits = model(inputs)
+            loss = criterion(outputs_logits, targets_float)
+            total_loss += loss.item()
+
+            # Get probabilities (apply sigmoid) and predicted class (threshold at 0.5)
+            outputs_probs = torch.sigmoid(outputs_logits).squeeze()
+            outputs_preds = (outputs_probs > 0.5).int()
+
+            # Update metrics
+            metrics_collection.update(outputs_probs, targets_int) # Use probs for AUC, preds implicit for others
+
+            # Store for confusion matrix later (move to CPU)
+            all_preds.append(outputs_preds.cpu().numpy())
+            all_targets.append(targets_int.cpu().numpy())
+
+    avg_loss = total_loss / len(loader)
+    final_metrics = metrics_collection.compute() # Compute all metrics at once
+
+    # Concatenate batch results for CM
+    all_preds = np.concatenate(all_preds)
+    all_targets = np.concatenate(all_targets)
+    cm = confusion_matrix(all_targets, all_preds)
+
+    # Convert tensor metrics to float for logging/JSON
+    metrics_dict = {k: v.item() for k, v in final_metrics.items()}
+    metrics_dict["confusion_matrix"] = cm.tolist()
+
+    logging.info("--- Model Evaluation (Test Set) ---")
+    logging.info(f"Average Loss: {avg_loss:.4f}")
+    for name, value in metrics_dict.items():
+        if name != "confusion_matrix":
+             logging.info(f"{name.replace('_', ' ').title()}: {value:.4f}")
+    logging.info(f"Confusion Matrix:\n{cm}")
+
+    return avg_loss, metrics_dict, cm # Return raw CM for plotting
+
+def plot_evaluation_charts(y_true_np, y_pred_proba_np, cm, model_name, gcs_bucket, gcs_output_prefix):
+    """Generates and saves Confusion Matrix, ROC, and PR curve plots."""
+    # This function needs numpy arrays on CPU
+    # 1. Confusion Matrix Plot
+    try:
+        fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, cbar=False)
+        ax_cm.set_title(f'{model_name} Confusion Matrix')
+        ax_cm.set_xlabel('Predicted Label')
+        ax_cm.set_ylabel('True Label')
+        save_plot_to_gcs(fig_cm, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_confusion_matrix.png")
+    except Exception as e:
+        logging.error(f"Failed to generate or save Confusion Matrix plot: {e}")
+
+    # 2. ROC Curve Plot - Use sklearn for display from probabilities
+    try:
+        fig_roc, ax_roc = plt.subplots(figsize=(7, 6))
+        RocCurveDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_roc, name=model_name)
+        ax_roc.plot([0, 1], [0, 1], 'k--', label='Chance level (AUC = 0.5)')
+        ax_roc.set_title(f'{model_name} Receiver Operating Characteristic (ROC) Curve')
+        ax_roc.legend()
+        save_plot_to_gcs(fig_roc, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_roc_curve.png")
+    except Exception as e:
+        logging.error(f"Failed to generate or save ROC Curve plot: {e}")
+
+    # 3. Precision-Recall Curve Plot - Use sklearn for display from probabilities
+    try:
+        fig_pr, ax_pr = plt.subplots(figsize=(7, 6))
+        PrecisionRecallDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_pr, name=model_name)
+        ax_pr.set_title(f'{model_name} Precision-Recall (PR) Curve')
+        save_plot_to_gcs(fig_pr, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_pr_curve.png")
+    except Exception as e:
+        logging.error(f"Failed to generate or save PR Curve plot: {e}")
+
+
+def perform_shap_analysis(model, X_train_tensor, X_test_tensor, feature_names, device, gcs_bucket, gcs_output_prefix, sample_size=100):
+    """Performs SHAP analysis using DeepExplainer and saves summary plot."""
+    logging.info("--- SHAP Analysis (MLP - DeepExplainer) ---")
+    logging.info(f"Using background sample size: {min(sample_size, X_train_tensor.shape[0])}")
+    logging.info(f"Explaining sample size: {min(sample_size, X_test_tensor.shape[0])}")
+
+    try:
+        model.eval() # Ensure model is in eval mode
+
+        # Sample background data (needs to be a tensor on the correct device)
+        indices_bg = np.random.choice(X_train_tensor.shape[0], min(sample_size, X_train_tensor.shape[0]), replace=False)
+        X_train_summary = X_train_tensor[indices_bg].to(device)
+
+        # Sample data to explain
+        indices_test = np.random.choice(X_test_tensor.shape[0], min(sample_size, X_test_tensor.shape[0]), replace=False)
+        X_test_sample = X_test_tensor[indices_test].to(device)
+
+        start_shap_time = time.time()
+        logging.info("Initializing SHAP DeepExplainer...")
+        # DeepExplainer needs the model and background data
+        explainer = shap.DeepExplainer(model, X_train_summary)
+
+        logging.info(f"Calculating SHAP values for {X_test_sample.shape[0]} test samples...")
+        shap_values_tensor = explainer.shap_values(X_test_sample)
+        end_shap_time = time.time()
+        logging.info(f"SHAP values calculated in {end_shap_time - start_shap_time:.2f} seconds.")
+
+        # shap_values_tensor might have dimensions corresponding to output logits.
+        # If output_dim is 1 (BCEWithLogitsLoss), shap_values_tensor likely has shape [n_samples, n_features].
+        # Convert tensors to numpy arrays on CPU for plotting
+        shap_values_np = shap_values_tensor.cpu().numpy()
+        X_test_sample_np = X_test_sample.cpu().numpy()
+
+        # Create DataFrame for plotting with feature names
+        X_test_sample_df = pd.DataFrame(X_test_sample_np, columns=feature_names)
+
+        # Generate and save summary plot
+        fig_shap, ax_shap = plt.subplots()
+        shap.summary_plot(shap_values_np, X_test_sample_df, plot_type="dot", show=False)
+        plt.title("SHAP Summary Plot (MLP)")
+        # Workaround for tight_layout error with summary_plot in some versions
         try:
-            explainer_mlp = shap.KernelExplainer(best_mlp_model.predict_proba, background_data_mlp)
-            custom_print_func("SHAP KernelExplainer initialized for MLP.")
+            plt.tight_layout()
+        except:
+            logging.warning("Could not apply tight_layout() to SHAP plot.")
+            pass
+        save_plot_to_gcs(fig_shap, gcs_bucket, f"{gcs_output_prefix}/plots/mlp_shap_summary.png")
 
-            nsamples_test_shap = min(50, X_test_shap_sample_df.shape[0])
-            if nsamples_test_shap > 0:
-                if isinstance(X_test_shap_sample_df, pd.DataFrame):
-                    test_data_for_shap_mlp = X_test_shap_sample_df.sample(nsamples_test_shap, random_state=42)
-                else:
-                    indices = np.random.choice(X_test_shap_sample_df.shape[0], nsamples_test_shap, replace=False)
-                    test_data_for_shap_mlp = X_test_shap_sample_df[indices]
+        # Calculate mean absolute SHAP values
+        mean_abs_shap = np.mean(np.abs(shap_values_np), axis=0)
+        feature_importance = pd.DataFrame({'feature': feature_names, 'mean_abs_shap': mean_abs_shap})
+        feature_importance = feature_importance.sort_values('mean_abs_shap', ascending=False)
+        logging.info("Top 10 features by Mean Absolute SHAP value:\n" + feature_importance.head(10).to_string())
 
-                custom_print_func(f"Calculating SHAP values for {nsamples_test_shap} MLP test instances...")
-                start_time_shap_mlp = time.time()
-                shap_values_mlp = explainer_mlp.shap_values(test_data_for_shap_mlp, nsamples='auto')
-                custom_print_func(f"MLP SHAP values calculation time: {time.time() - start_time_shap_mlp:.2f} seconds")
+        return shap_values_np, feature_importance.to_dict('records')
 
-                # shap_values_mlp[1] for the positive class (fraud)
-                shap_values_for_positive_class_mlp = shap_values_mlp[1] if isinstance(shap_values_mlp, list) and len(
-                    shap_values_mlp) == 2 else shap_values_mlp
+    except Exception as e:
+        logging.error(f"Failed during SHAP analysis: {e}")
+        return None, None
 
-                custom_print_func("\nGenerating MLP SHAP Summary Plot (Feature Importance)...")
-                fig_shap_summary_mlp = plt.figure()
-                shap.summary_plot(shap_values_for_positive_class_mlp, test_data_for_shap_mlp,
-                                  feature_names=processed_feature_names if processed_feature_names else None,
-                                  show=False, plot_size=None)
-                plt.title("SHAP Summary Plot for MLP (Fraud Class)")
-                save_plot_func(fig_shap_summary_mlp, gcs_bucket_name, gcs_output_prefix, "mlp_shap_summary_plot")
-            else:
-                custom_print_func("Not enough test samples to generate SHAP explanations for MLP.")
-        except Exception as e:
-            custom_print_func(f"Error during MLP SHAP value calculation or plotting: {e}")
+# --- Main Execution ---
+
+def main(args):
+    """Main training and evaluation pipeline function."""
+    logging.info("--- Starting MLP Training Pipeline ---")
+    GCS_BUCKET = args.gcs_bucket
+    GCS_OUTPUT_PREFIX = args.gcs_output_prefix.strip('/')
+    METADATA_URI = args.metadata_uri
+
+    # --- 1. Setup Device ---
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        logging.info(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
     else:
-        custom_print_func("Not enough background samples for SHAP KernelExplainer for MLP.")
+        device = torch.device("cpu")
+        logging.info("CUDA not available. Using CPU.")
 
-    custom_print_func("\n--- MLP Pipeline Complete ---")
+    # --- 2. Load Metadata ---
+    logging.info(f"Loading metadata from: {METADATA_URI}")
+    try:
+        metadata_blob_name = METADATA_URI.replace(f"gs://{GCS_BUCKET}/", "")
+        metadata_str = gcs_utils.download_blob_as_string(GCS_BUCKET, metadata_blob_name)
+        if metadata_str is None: raise FileNotFoundError("Could not download metadata file.")
+        metadata = json.loads(metadata_str)
+        logging.info("Metadata loaded successfully.")
+        processed_feature_names = metadata.get("processed_feature_names")
+        if not processed_feature_names: raise ValueError("Processed feature names not found in metadata.")
+        data_paths = metadata.get("gcs_paths", {})
+        x_train_path = data_paths.get("X_train_resampled", "").replace(f"gs://{GCS_BUCKET}/", "")
+        y_train_path = data_paths.get("y_train_resampled", "").replace(f"gs://{GCS_BUCKET}/", "")
+        x_test_path = data_paths.get("X_test_processed", "").replace(f"gs://{GCS_BUCKET}/", "")
+        y_test_path = data_paths.get("y_test", "").replace(f"gs://{GCS_BUCKET}/", "")
+        if not all([x_train_path, y_train_path, x_test_path, y_test_path]):
+            raise ValueError("One or more required data paths are missing in metadata.")
+    except Exception as e:
+        logging.error(f"Failed to load or parse metadata from {METADATA_URI}: {e}")
+        return
+
+    # --- 3. Load Processed Data ---
+    X_train_df = load_data_from_gcs(GCS_BUCKET, x_train_path, processed_feature_names)
+    y_train_df = load_data_from_gcs(GCS_BUCKET, y_train_path)
+    X_test_df = load_data_from_gcs(GCS_BUCKET, x_test_path, processed_feature_names)
+    y_test_df = load_data_from_gcs(GCS_BUCKET, y_test_path)
+
+    # Convert to numpy arrays and then to PyTorch tensors
+    X_train_np = X_train_df.values.astype(np.float32)
+    y_train_np = y_train_df.iloc[:, 0].values.astype(np.int64) # Use int64 for targets
+    X_test_np = X_test_df.values.astype(np.float32)
+    y_test_np = y_test_df.iloc[:, 0].values.astype(np.int64)
+
+    X_train_tensor = torch.from_numpy(X_train_np)
+    y_train_tensor = torch.from_numpy(y_train_np)
+    X_test_tensor = torch.from_numpy(X_test_np)
+    y_test_tensor = torch.from_numpy(y_test_np)
+
+    # --- 4. Create DataLoaders ---
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True if device.type == 'cuda' else False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True if device.type == 'cuda' else False)
+
+    # --- 5. Initialize Model, Criterion, Optimizer ---
+    input_dim = X_train_tensor.shape[1]
+    hidden_dims = [int(d) for d in args.mlp_hidden_dims.split(',')] # e.g., "128,64" -> [128, 64]
+    model = SimpleMLP(input_dim, hidden_dims, output_dim=1, dropout_rate=args.mlp_dropout).to(device)
+    logging.info(f"MLP Model Architecture:\n{model}")
+
+    criterion = nn.BCEWithLogitsLoss() # Handles sigmoid internally
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate) # AdamW often preferred
+
+    # --- 6. Training Loop ---
+    logging.info("--- Starting Training ---")
+    total_train_time = 0
+    epoch_losses = []
+    for epoch in range(1, args.epochs + 1):
+        avg_loss, duration = train_epoch(model, train_loader, criterion, optimizer, device, epoch)
+        epoch_losses.append(avg_loss)
+        total_train_time += duration
+        # Optional: Add validation loop here if needed
+    logging.info(f"--- Training Finished --- Total Duration: {total_train_time:.2f}s")
+
+    # --- 7. Evaluate on Test Set ---
+    logging.info("Evaluating model on test set...")
+    test_loss, test_metrics, test_cm = evaluate_model(model, test_loader, criterion, device)
+
+    # Retrieve probabilities needed for plotting ROC/PR curves
+    all_probs_list = []
+    all_targets_list = []
+    model.eval()
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            inputs = inputs.to(device)
+            outputs_logits = model(inputs)
+            outputs_probs = torch.sigmoid(outputs_logits).squeeze()
+            all_probs_list.append(outputs_probs.cpu().numpy())
+            all_targets_list.append(targets.cpu().numpy()) # Targets are already on CPU from dataloader if pin_memory=False or after first access if True
+    y_pred_proba_np = np.concatenate(all_probs_list)
+    y_true_np = np.concatenate(all_targets_list)
+
+
+    # --- 8. Generate and Save Plots ---
+    plot_evaluation_charts(y_true_np, y_pred_proba_np, test_cm, 'MLP', GCS_BUCKET, GCS_OUTPUT_PREFIX)
+
+    # --- 9. Perform SHAP Analysis ---
+    shap_values = None
+    shap_feature_importance = None
+    if args.run_shap:
+        shap_values, shap_feature_importance = perform_shap_analysis(
+            model, X_train_tensor, X_test_tensor, processed_feature_names, device,
+            GCS_BUCKET, GCS_OUTPUT_PREFIX, sample_size=args.shap_sample_size
+        )
+    else:
+        logging.info("SHAP analysis skipped as per --run-shap flag.")
+
+    # --- 10. Save Model ---
+    model_blob_name = f"{GCS_OUTPUT_PREFIX}/model/mlp_model_state_dict.pt"
+    save_model_to_gcs(model.state_dict(), GCS_BUCKET, model_blob_name)
+
+    # --- 11. Save Logs and Metrics ---
+    logging.info("Saving final logs and metrics...")
+    log_summary = {
+        "model_type": "MLP",
+        "script_args": vars(args),
+        "device_used": str(device),
+        "metadata_source": METADATA_URI,
+        "model_architecture": str(model),
+        "training_duration_seconds": total_train_time,
+        "training_avg_loss_per_epoch": epoch_losses,
+        "test_set_evaluation": {
+             "loss": test_loss,
+             "metrics": test_metrics
+        },
+        "shap_analysis_run": args.run_shap,
+        "shap_top_features": shap_feature_importance,
+        "output_gcs_prefix": f"gs://{GCS_BUCKET}/{GCS_OUTPUT_PREFIX}",
+        "saved_model_path": f"gs://{GCS_BUCKET}/{model_blob_name}"
+    }
+
+    log_blob_name = f"{GCS_OUTPUT_PREFIX}/logs/mlp_training_log.json"
+    try:
+        log_string = json.dumps(log_summary, indent=4, default=lambda x: str(x)) # Handle potential non-serializable items
+        gcs_utils.upload_string_to_gcs(GCS_BUCKET, log_string, log_blob_name, content_type='application/json')
+        logging.info(f"Log summary saved to gs://{GCS_BUCKET}/{log_blob_name}")
+    except Exception as e:
+        logging.error(f"Failed to save log summary: {e}")
+
+    logging.info("--- MLP Training Pipeline Finished ---")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train and evaluate an MLP model using PyTorch on GPU with data from GCS.")
+    parser.add_argument("--gcs-bucket", type=str, required=True, help="GCS bucket name.")
+    parser.add_argument("--metadata-uri", type=str, required=True, help="GCS URI of the preprocessing_metadata.json file.")
+    parser.add_argument("--gcs-output-prefix", type=str, required=True, help="GCS prefix for saving outputs.")
+    # Training Hyperparameters
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs.")
+    parser.add_argument("--batch-size", type=int, default=1024, help="Batch size for training and evaluation.")
+    parser.add_argument("--learning-rate", type=float, default=1e-4, help="Optimizer learning rate.")
+    parser.add_argument("--num-workers", type=int, default=2, help="Number of worker processes for DataLoader.")
+    # MLP Specific Hyperparameters
+    parser.add_argument("--mlp-hidden-dims", type=str, default="256,128", help="Comma-separated list of hidden layer dimensions (e.g., '256,128').")
+    parser.add_argument("--mlp-dropout", type=float, default=0.3, help="Dropout rate in MLP layers.")
+    # SHAP arguments
+    parser.add_argument("--run-shap", action='store_true', help="Run SHAP analysis.")
+    parser.add_argument("--shap-sample-size", type=int, default=200, help="Number of samples for SHAP background and explanation.")
+
+    args = parser.parse_args()
+    main(args)

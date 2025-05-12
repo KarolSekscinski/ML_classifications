@@ -1,77 +1,160 @@
-import time
-from io import BytesIO
+# gcs_utils.py
+import logging
 from google.cloud import storage
-import matplotlib.pyplot as plt
+from google.api_core import exceptions as google_exceptions # For specific exceptions
 
-# --- Configuration ---
-# This can be set here or passed as arguments if more flexibility is needed.
-GCS_BUCKET_NAME = "licencjat_ml_classification"  # <--- REPLACE with your GCS bucket name
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Logging ---
-LOG_MESSAGES = []
+# Initialize storage client globally or within functions as needed.
+# Global initialization is fine for scripts if credentials are set up environment-wide.
+try:
+    storage_client = storage.Client()
+    logging.info("Google Cloud Storage client initialized successfully.")
+except Exception as e:
+    logging.error(f"Failed to initialize Google Cloud Storage client: {e}")
+    # Depending on how critical GCS is, you might raise an error here or proceed cautiously.
+    storage_client = None # Set to None to check before use in functions
 
+def _get_client():
+    """Helper to get the storage client, raising an error if not initialized."""
+    if storage_client is None:
+        logging.error("Storage client is not initialized. Ensure credentials are set up.")
+        raise ConnectionError("Storage client not initialized.")
+    return storage_client
 
-def custom_print(message):
-    """Prints to console and appends to global log list."""
-    print(message)
-    LOG_MESSAGES.append(str(message))
+def upload_bytes_to_gcs(bucket_name, source_bytes, destination_blob_name, content_type='application/octet-stream'):
+    """Uploads bytes to a GCS bucket."""
+    client = _get_client()
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(destination_blob_name)
 
+        logging.info(f"Uploading bytes to gs://{bucket_name}/{destination_blob_name}...")
+        blob.upload_from_string(source_bytes, content_type=content_type)
+        logging.info(f"Bytes successfully uploaded to gs://{bucket_name}/{destination_blob_name}")
+        return True
+    except google_exceptions.NotFound:
+        logging.error(f"Error: Bucket '{bucket_name}' not found.")
+        return False
+    except Exception as e:
+        logging.error(f"Failed to upload bytes to gs://{bucket_name}/{destination_blob_name}: {e}")
+        return False
 
-# --- GCS Helper Functions ---
-def upload_string_to_gcs(bucket_name, string_content, destination_blob_name, content_type='text/plain'):
+def upload_string_to_gcs(bucket_name, source_string, destination_blob_name, content_type='text/plain'):
     """Uploads a string to a GCS bucket."""
+    client = _get_client()
     try:
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
+        bucket = client.bucket(bucket_name)
         blob = bucket.blob(destination_blob_name)
-        blob.upload_from_string(string_content, content_type=content_type)
-        custom_print(f"Successfully uploaded string to gs://{bucket_name}/{destination_blob_name}")
+
+        logging.info(f"Uploading string to gs://{bucket_name}/{destination_blob_name}...")
+        blob.upload_from_string(source_string, content_type=content_type)
+        logging.info(f"String successfully uploaded to gs://{bucket_name}/{destination_blob_name}")
+        return True
+    except google_exceptions.NotFound:
+        logging.error(f"Error: Bucket '{bucket_name}' not found.")
+        return False
     except Exception as e:
-        custom_print(f"ERROR uploading string to GCS: {e}")
+        logging.error(f"Failed to upload string to gs://{bucket_name}/{destination_blob_name}: {e}")
+        return False
 
-
-def upload_bytes_to_gcs(bucket_name, bytes_content, destination_blob_name, content_type='application/octet-stream'):
-    """Uploads bytes content (e.g., image, pickled model) to a GCS bucket."""
+def download_blob_to_memory(bucket_name, source_blob_name):
+    """Downloads a blob from GCS into memory as bytes."""
+    client = _get_client()
     try:
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(destination_blob_name)
-        blob.upload_from_string(bytes_content, content_type=content_type)
-        custom_print(f"Successfully uploaded bytes to gs://{bucket_name}/{destination_blob_name}")
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(source_blob_name)
+
+        logging.info(f"Downloading gs://{bucket_name}/{source_blob_name} to memory...")
+        blob_bytes = blob.download_as_bytes()
+        logging.info(f"Successfully downloaded gs://{bucket_name}/{source_blob_name} ({len(blob_bytes)} bytes).")
+        return blob_bytes
+    except google_exceptions.NotFound:
+        logging.error(f"Error: Blob '{source_blob_name}' not found in bucket '{bucket_name}'.")
+        return None
     except Exception as e:
-        custom_print(f"ERROR uploading bytes to GCS: {e}")
+        logging.error(f"Failed to download blob gs://{bucket_name}/{source_blob_name}: {e}")
+        return None
 
-
-def save_plot_to_gcs(plt_figure, bucket_name, gcs_output_prefix, blob_name_suffix):
-    """Saves the current matplotlib figure to GCS as PNG."""
+def download_blob_as_string(bucket_name, source_blob_name, encoding='utf-8'):
+    """Downloads a blob from GCS into memory as a string."""
+    client = _get_client()
     try:
-        img_data = BytesIO()
-        # Ensure figure is not empty if it was created outside
-        if not plt_figure.axes:  # A simple check if the figure has any axes
-            custom_print(f"Warning: Plot figure for {blob_name_suffix} appears to be empty. Skipping GCS upload.")
-            plt.close(plt_figure)
-            return
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(source_blob_name)
 
-        plt_figure.savefig(img_data, format='png', bbox_inches='tight')
-        img_data.seek(0)
-        destination_blob_name = f"{gcs_output_prefix}/plots/{blob_name_suffix}.png"
-        upload_bytes_to_gcs(bucket_name, img_data.getvalue(), destination_blob_name, content_type='image/png')
-        # plt.close(plt_figure) # Close the figure to free memory - caller should manage this if fig is reused
+        logging.info(f"Downloading gs://{bucket_name}/{source_blob_name} as string...")
+        blob_string = blob.download_as_text(encoding=encoding)
+        logging.info(f"Successfully downloaded gs://{bucket_name}/{source_blob_name} as string.")
+        return blob_string
+    except google_exceptions.NotFound:
+        logging.error(f"Error: Blob '{source_blob_name}' not found in bucket '{bucket_name}'.")
+        return None
     except Exception as e:
-        custom_print(f"ERROR saving plot {blob_name_suffix} to GCS: {e}")
-    finally:
-        if plt_figure:  # Always try to close to prevent memory leaks
-            plt.close(plt_figure)
+        logging.error(f"Failed to download blob gs://{bucket_name}/{source_blob_name} as string: {e}")
+        return None
 
+def list_blobs(bucket_name, prefix=None, delimiter=None):
+    """Lists blobs in a given GCS bucket, optionally filtering by prefix."""
+    client = _get_client()
+    try:
+        blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter=delimiter)
+        blob_names = [blob.name for blob in blobs]
+        logging.info(f"Found {len(blob_names)} blobs in gs://{bucket_name}/{prefix or ''}")
+        return blob_names
+    except google_exceptions.NotFound:
+        logging.error(f"Error: Bucket '{bucket_name}' not found.")
+        return []
+    except Exception as e:
+        logging.error(f"Failed to list blobs in gs://{bucket_name}/{prefix or ''}: {e}")
+        return []
 
-def get_gcs_output_prefix():
-    """Generates a unique GCS output prefix for the run."""
-    return "fraud_detection_run_" + time.strftime("%Y%m%d_%H%M%S")
+# Example usage (optional, for testing the module directly)
+if __name__ == '__main__':
+    # Replace with your actual bucket name and desired paths for testing
+    TEST_BUCKET = 'your-gcs-bucket-name' # <--- CHANGE THIS
+    TEST_PREFIX = 'gcs_utils_test'
 
+    if TEST_BUCKET == 'your-gcs-bucket-name':
+        print("Please update TEST_BUCKET in gcs_utils.py before running the example.")
+    elif storage_client: # Proceed only if client initialized
+        print(f"--- Testing GCS Utils with bucket: {TEST_BUCKET} ---")
 
-def finalize_logs(bucket_name, gcs_output_prefix):
-    """Uploads the accumulated logs to GCS at the end of the script run."""
-    custom_print("Finalizing logs and uploading to GCS...")
-    log_file_content = "\n".join(LOG_MESSAGES)
-    upload_string_to_gcs(bucket_name, log_file_content, f"{gcs_output_prefix}/run_log.txt")
-    custom_print("Log upload complete.")
+        # Test string upload
+        print("\nTesting string upload...")
+        test_str = "Hello GCS from gcs_utils!"
+        str_blob = f"{TEST_PREFIX}/test_string.txt"
+        upload_string_to_gcs(TEST_BUCKET, test_str, str_blob)
+
+        # Test bytes upload (e.g., pickled object)
+        print("\nTesting bytes upload...")
+        import pickle
+        test_obj = {'a': 1, 'b': [2, 3]}
+        obj_bytes = pickle.dumps(test_obj)
+        bytes_blob = f"{TEST_PREFIX}/test_object.pkl"
+        upload_bytes_to_gcs(TEST_BUCKET, obj_bytes, bytes_blob)
+
+        # Test listing blobs
+        print("\nTesting list blobs...")
+        blobs = list_blobs(TEST_BUCKET, prefix=TEST_PREFIX)
+        print("Blobs found:")
+        for b in blobs:
+            print(f" - {b}")
+
+        # Test string download
+        print("\nTesting string download...")
+        downloaded_str = download_blob_as_string(TEST_BUCKET, str_blob)
+        if downloaded_str:
+            print(f"Downloaded string: '{downloaded_str}'")
+            assert downloaded_str == test_str
+
+        # Test bytes download
+        print("\nTesting bytes download...")
+        downloaded_bytes = download_blob_to_memory(TEST_BUCKET, bytes_blob)
+        if downloaded_bytes:
+            downloaded_obj = pickle.loads(downloaded_bytes)
+            print(f"Downloaded and unpickled object: {downloaded_obj}")
+            assert downloaded_obj == test_obj
+
+        print("\n--- GCS Utils Test Complete ---")
+        print(f"Note: Test files created under gs://{TEST_BUCKET}/{TEST_PREFIX}/")

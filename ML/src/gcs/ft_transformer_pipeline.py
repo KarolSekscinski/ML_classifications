@@ -1,347 +1,437 @@
-import time
-import pickle
+# ft_transformer_pipeline.py (Updated May 12, 2025)
+import argparse
+import logging
 import pandas as pd
 import numpy as np
-
-import torch  # PyTorch
+import torch
 import torch.nn as nn
 import torch.optim as optim
-from rtdl.modules import FTTransformer  # rtdl library for FT-Transformer
-from sklearn.impute import SimpleImputer
-from skorch import NeuralNetClassifier  # skorch for scikit-learn compatibility
-
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.metrics import (
-    classification_report, confusion_matrix, roc_auc_score, average_precision_score,
-    roc_curve, precision_recall_curve, accuracy_score, precision_score,
-    recall_score, f1_score
-)
+from torch.utils.data import DataLoader, Dataset
+import torchmetrics
+# Ensure rtdl is installed: pip install rtdl
+import rtdl # Revisiting Tabular Deep Learning library
+from sklearn.metrics import confusion_matrix, RocCurveDisplay, PrecisionRecallDisplay # Import specific display functions
 import matplotlib.pyplot as plt
-import shap
+import seaborn as sns
+import shap # Attempt SHAP, may be difficult
+import time
+from io import BytesIO, StringIO
+import json
+import os
 
+# Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
+import gcs_utils
 
-# Assuming gcs_utils contains custom_print, save_plot_to_gcs, upload_bytes_to_gcs
-# These would be imported in the main script and passed as arguments.
+# --- Configuration ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+plt.style.use('seaborn-v0_8-darkgrid')
 
-def run_ft_transformer_pipeline(
-        X_train_resampled, y_train_resampled, X_test_processed, y_test,
-        processed_feature_names,  # Needed for SHAP if X_test_processed is numpy
-        numerical_features, categorical_features,  # Needed to determine cat_cardinalities for FT-Transformer
-        X_train,  # Original X_train to determine cardinalities before OHE
-        gcs_bucket_name, gcs_output_prefix,
-        custom_print_func, save_plot_func, upload_bytes_func
-):
-    """
-    Runs the FT-Transformer model training, tuning, evaluation, and SHAP interpretation.
-    """
-    custom_print_func("\n--- FT-Transformer Model Training and Hyperparameter Tuning ---")
+# --- Helper Functions (Reusing from previous scripts) ---
 
-    # FT-Transformer specific preprocessing: Determine cardinalities for categorical features
-    # This needs to be done on the data *before* one-hot encoding but *after* imputation.
-    # For simplicity, if X_train (original, non-OHE'd) is passed, we can infer from it.
-    # Otherwise, this step would need careful handling of how categorical features were encoded.
-
-    cat_cardinalities = []
-    if categorical_features:  # Only if there are categorical features defined
-        # Create a temporary preprocessor for just imputing categoricals to get cardinalities
-        temp_cat_imputer = SimpleImputer(strategy='most_frequent')
-        X_train_cat_imputed = pd.DataFrame(temp_cat_imputer.fit_transform(X_train[categorical_features]),
-                                           columns=categorical_features)
-
-        for col in categorical_features:
-            # Ensure imputed data is treated as object/category for nunique
-            cat_cardinalities.append(X_train_cat_imputed[col].astype('category').nunique())
-
-    custom_print_func(f"Categorical features for FT-Transformer: {categorical_features}")
-    custom_print_func(f"Determined cardinalities for categorical features: {cat_cardinalities}")
-
-    # Ensure y_train_resampled and y_test are LongTensors for PyTorch
-    y_train_torch = torch.tensor(y_train_resampled, dtype=torch.long)
-    y_test_torch = torch.tensor(y_test.values, dtype=torch.long)  # y_test is pandas Series
-
-    # Convert X data to float32, which is standard for PyTorch tensors
-    X_train_torch = torch.tensor(X_train_resampled.astype(np.float32))
-    X_test_torch = torch.tensor(X_test_processed.astype(np.float32))
-
-    d_out = len(np.unique(y_train_resampled))  # Number of output classes (should be 2 for binary)
-
-    # Define the parameter grid for FT-Transformer (via skorch)
-    # This grid is simplified for demonstration. FT-Transformer has many more params.
-    param_grid_ft = {
-        'lr': [0.0001, 0.001],  # Learning rate
-        'batch_size': [128, 256],  # Batch size for training
-        'max_epochs': [10, 20],  # Reduced epochs for faster demo
-        # FT-Transformer specific module parameters (prefixed with 'module__')
-        'module__n_blocks': [2, 3],  # Number of Transformer blocks
-        'module__d_token': [96, 128],  # Dimension of tokens/embeddings
-        # 'module__ffn_d_hidden': [192], # Dimension of hidden layer in FFN
-        # 'module__attention_dropout': [0.1, 0.2],
-        # 'module__ffn_dropout': [0.0, 0.1],
-    }
-    # For a very quick demo:
-    param_grid_ft_demo = {
-        'lr': [0.001],
-        'batch_size': [256],
-        'max_epochs': [5],  # Very few epochs for demo
-        'module__n_blocks': [1],
-        'module__d_token': [64],
-    }
-
-    # Initialize FT-Transformer within skorch's NeuralNetClassifier
-    # The module needs to be instantiated with parameters that are NOT tuned by GridSearchCV here,
-    # or they need to be part of the search space.
-    # d_in is the number of features after preprocessing.
-    d_in = X_train_resampled.shape[1]
-
-    # Ensure numerical_features only includes those present after preprocessing
-    # The FTTransformer module expects num_numerical_features count
-    # If processed_feature_names is available and accurate, we can use it.
-    # Otherwise, we assume X_train_resampled columns are ordered: numerical, OHE_categorical, binary_passthrough
-
-    # Infer num_numerical_features:
-    # This is tricky because X_train_resampled is already processed.
-    # We need to know how many of its columns correspond to the original numerical features.
-    # If processed_feature_names is correctly reconstructed, we can count.
-    # A simpler way for FT-Transformer is to tell it how many *original* numerical features there were.
-    # The FT-Transformer's tokenizer will handle numerical and categorical features differently.
-    # It's often easier to pass X as a dict {'numerical': X_num, 'categorical': X_cat} to FT-Transformer
-    # or use its built-in tokenizer which requires original numerical and categorical data.
-    # For this setup with a pre-processed X_train_resampled (all numeric after OHE),
-    # we treat all input features as 'numerical' from FT-Transformer's perspective if we don't use its tokenizer.
-    # This is a simplification. A proper FT-Transformer setup would use its tokenizer.
-
-    # Simplified approach: Treat all columns in X_train_resampled as numerical inputs to a generic transformer
-    # This is NOT how FT-Transformer is typically used with its special tokenizer.
-    # A more correct approach would involve rtdl.NumericalFeatureTokenizer and rtdl.CategoricalFeatureTokenizer
-    # or passing original numerical and categorical data to a custom skorch module.
-
-    # For this example, we'll pass cat_cardinalities. FTTransformer expects this.
-    # It also expects `d_numerical` if numerical features are present and tokenized separately.
-    # If all features are passed as one block (after OHE), then `d_numerical` would be 0,
-    # and all features would be treated as if they are to be tokenized by the categorical tokenizer,
-    # which is not ideal.
-
-    # Let's assume X_train_resampled has numerical features first, then OHE categorical.
-    # The FTTransformer module should be configured with the number of original numerical features
-    # and the cardinalities of the original categorical features.
-
-    # For FTTransformer, it's best to use its own tokenization.
-    # However, to fit into the current preprocessor pipeline, we'd need a more complex skorch setup.
-    # As a compromise for this example, we'll define a basic FT-Transformer.
-    # Note: This will not leverage FT-Transformer's full potential without its specific tokenizers.
-
-    net = NeuralNetClassifier(
-        module=FTTransformer,
-        module__d_numerical=len(numerical_features),  # Number of original numerical features
-        module__cat_cardinalities=cat_cardinalities if cat_cardinalities else None,
-        # Cardinalities of original categorical features
-        module__d_out=d_out,  # Number of output classes
-        # Other FT-Transformer params like n_blocks, d_token will be tuned by GridSearchCV
-        criterion=torch.nn.CrossEntropyLoss,
-        optimizer=torch.optim.AdamW,
-        # train_split=None, # Use skorch's default or provide a validation set
-        verbose=0,  # Skorch verbosity
-        device='cuda' if torch.cuda.is_available() else 'cpu',  # Use CUDA if available
-    )
-    custom_print_func(f"FT-Transformer will run on: {'cuda' if torch.cuda.is_available() else 'cpu'}")
-
-    cv_stratified = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)  # Reduced folds for speed
-
-    grid_search_ft = GridSearchCV(
-        estimator=net,
-        param_grid=param_grid_ft_demo,  # Using demo grid; use param_grid_ft for full search
-        scoring='average_precision',
-        cv=cv_stratified,
-        verbose=1,
-        n_jobs=-1  # Can be problematic with CUDA if not handled carefully by skorch/GridSearchCV
-    )
-
-    custom_print_func("Starting GridSearchCV for FT-Transformer...")
-    start_time_ft_train = time.time()
+def load_data_from_gcs(gcs_bucket, gcs_path):
+    """Loads CSV data from GCS into a pandas DataFrame. Feature names are ignored here."""
+    logging.info(f"Loading data from: gs://{gcs_bucket}/{gcs_path}")
     try:
-        # Important: FT-Transformer expects specific input format if using its tokenizers.
-        # If passing pre-OHE'd data, it needs to be structured for the model.
-        # Here, X_train_resampled is fully numeric after OHE.
-        # We need to ensure the FTTransformer module is compatible with this flat numeric input.
-        # The `rtdl.FTTransformer` expects either:
-        # 1. x_numerical and x_categorical as separate inputs to its forward method.
-        # 2. A setup where its internal tokenizers are used.
-        # Skorch by default passes X as a single tensor.
-        # To make this work, we might need a custom skorch module that splits X or uses
-        # a version of FT-Transformer that accepts a single flat tensor and knows
-        # which parts are numerical and which are categorical (e.g., via column indices).
+        data_bytes = gcs_utils.download_blob_to_memory(gcs_bucket, gcs_path)
+        if data_bytes is None: raise FileNotFoundError(f"Could not download GCS file: gs://{gcs_bucket}/{gcs_path}")
+        df = pd.read_csv(BytesIO(data_bytes))
+        logging.info(f"Data loaded successfully from gs://{gcs_bucket}/{gcs_path}. Shape: {df.shape}")
+        return df
+    except Exception as e:
+        logging.error(f"Error loading data from gs://{gcs_bucket}/{gcs_path}: {e}")
+        raise
 
-        # For this example, we assume the FTTransformer module (or a wrapper) can handle
-        # the flat X_train_resampled and internally distinguish based on d_numerical.
-        # This is a simplification. A robust FT-Transformer setup is more involved.
+def save_plot_to_gcs(fig, gcs_bucket, gcs_blob_name):
+    """Saves a matplotlib figure to GCS as PNG."""
+    # (Identical to previous versions)
+    logging.info(f"Saving plot to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+    try:
+        buf = BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        plot_bytes = buf.read()
+        gcs_utils.upload_bytes_to_gcs(gcs_bucket, plot_bytes, gcs_blob_name, content_type='image/png')
+        logging.info(f"Plot successfully saved to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+        plt.close(fig)
+    except Exception as e:
+        logging.error(f"ERROR saving plot to GCS ({gcs_blob_name}): {e}")
+        plt.close(fig)
 
-        # Convert y_train_resampled to numpy for skorch compatibility if it's a tensor
-        if isinstance(y_train_resampled, torch.Tensor):
-            y_train_resampled_np = y_train_resampled.cpu().numpy()
-        else:
-            y_train_resampled_np = y_train_resampled
+def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
+    """Saves a PyTorch model state dictionary to GCS."""
+    # (Identical to previous versions)
+    logging.info(f"Saving model state_dict to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+    try:
+        with BytesIO() as buf:
+            torch.save(model_state_dict, buf)
+            buf.seek(0)
+            model_bytes = buf.read()
+        gcs_utils.upload_bytes_to_gcs(gcs_bucket, model_bytes, gcs_blob_name, content_type='application/octet-stream')
+        logging.info(f"Model state_dict successfully saved to gs://{gcs_bucket}/{gcs_blob_name}")
+    except Exception as e:
+        logging.error(f"ERROR saving model state_dict to GCS ({gcs_blob_name}): {e}")
 
-        grid_search_ft.fit(X_train_resampled.astype(np.float32),
-                           y_train_resampled_np)  # Skorch expects numpy arrays or tensors
+# --- PyTorch Dataset Definition for FT-Transformer ---
+class TabularDataset(Dataset):
+    def __init__(self, X_num, X_cat, Y):
+        self.X_num = torch.tensor(X_num, dtype=torch.float32)
+        self.X_cat = torch.tensor(X_cat, dtype=torch.int64) # Categorical indices MUST be long integers
+        self.Y = torch.tensor(Y, dtype=torch.int64)
 
-        ft_training_time = time.time() - start_time_ft_train
-        best_ft_model = grid_search_ft.best_estimator_
+    def __len__(self):
+        return len(self.Y)
 
-        custom_print_func("\nBest FT-Transformer Parameters found by GridSearchCV:")
-        custom_print_func(grid_search_ft.best_params_)
-        custom_print_func(
-            f"Best FT-Transformer Average Precision (PR AUC) score during CV: {grid_search_ft.best_score_:.4f}")
-        custom_print_func(f"FT-Transformer Training Time (GridSearchCV): {ft_training_time:.2f} seconds")
+    def __getitem__(self, idx):
+        return self.X_num[idx], self.X_cat[idx], self.Y[idx]
 
-        # --- Evaluate Best FT-Transformer Model on Test Set ---
-        custom_print_func("\n--- Evaluating Best FT-Transformer Model on Test Set ---")
-        y_pred_ft = best_ft_model.predict(X_test_torch)  # skorch handles tensor input for predict
-        y_proba_ft = best_ft_model.predict_proba(X_test_torch)[:, 1]
+# --- Training & Evaluation Functions (Adapted for FT-Transformer input) ---
+# (train_epoch_ft, evaluate_model_ft functions are identical to the previous version)
+def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
+    model.train()
+    total_loss = 0.0
+    start_time = time.time()
+    for i, (x_num, x_cat, targets) in enumerate(loader):
+        x_num, x_cat, targets = x_num.to(device), x_cat.to(device), targets.to(device)
+        targets_float = targets.float().unsqueeze(1) # Target must be float for BCEWithLogitsLoss
+        optimizer.zero_grad()
+        outputs = model(x_num, x_cat)
+        loss = criterion(outputs, targets_float)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+        if (i + 1) % 100 == 0: logging.info(f'Epoch {epoch_num}, Batch {i+1}/{len(loader)}, Loss: {loss.item():.4f}')
+    avg_loss = total_loss / len(loader)
+    epoch_duration = time.time() - start_time
+    logging.info(f'Epoch {epoch_num} Training Summary: Average Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f}s')
+    return avg_loss, epoch_duration
 
-        # Convert y_test_torch back to numpy for sklearn metrics
-        y_test_np = y_test_torch.cpu().numpy()
+def evaluate_model_ft(model, loader, criterion, device):
+    model.eval()
+    total_loss = 0.0
+    all_preds = []
+    all_targets = []
+    metrics_collection = torchmetrics.MetricCollection({
+        'accuracy': torchmetrics.Accuracy(task="binary").to(device),
+        'precision': torchmetrics.Precision(task="binary").to(device),
+        'recall': torchmetrics.Recall(task="binary").to(device),
+        'f1': torchmetrics.F1Score(task="binary").to(device),
+        'roc_auc': torchmetrics.AUROC(task="binary").to(device),
+        'pr_auc': torchmetrics.AveragePrecision(task="binary").to(device)
+    }).to(device)
+    with torch.no_grad():
+        for x_num, x_cat, targets in loader:
+            x_num, x_cat, targets = x_num.to(device), x_cat.to(device), targets.to(device)
+            targets_float = targets.float().unsqueeze(1)
+            targets_int = targets.int() # Keep int version for metrics
+            outputs_logits = model(x_num, x_cat)
+            loss = criterion(outputs_logits, targets_float)
+            total_loss += loss.item()
+            outputs_probs = torch.sigmoid(outputs_logits).squeeze()
+            metrics_collection.update(outputs_probs, targets_int) # Use probs for AUC/AP, preds derived internally
+            # Store predictions and targets for CM
+            outputs_preds = (outputs_probs > 0.5).int()
+            all_preds.append(outputs_preds.cpu().numpy())
+            all_targets.append(targets_int.cpu().numpy())
+    avg_loss = total_loss / len(loader)
+    final_metrics = metrics_collection.compute()
+    all_preds = np.concatenate(all_preds)
+    all_targets = np.concatenate(all_targets)
+    cm = confusion_matrix(all_targets, all_preds)
+    metrics_dict = {k: v.item() for k, v in final_metrics.items()}
+    metrics_dict["confusion_matrix"] = cm.tolist()
+    logging.info("--- Model Evaluation (Test Set) ---")
+    logging.info(f"Average Loss: {avg_loss:.4f}")
+    for name, value in metrics_dict.items():
+        if name != "confusion_matrix": logging.info(f"{name.replace('_', ' ').title()}: {value:.4f}")
+    logging.info(f"Confusion Matrix:\n{cm}")
+    return avg_loss, metrics_dict, cm
 
-        accuracy_ft = accuracy_score(y_test_np, y_pred_ft)
-        precision_ft_fraud = precision_score(y_test_np, y_pred_ft, pos_label=1, zero_division=0)
-        recall_ft_fraud = recall_score(y_test_np, y_pred_ft, pos_label=1, zero_division=0)  # Sensitivity
-        f1_ft_fraud = f1_score(y_test_np, y_pred_ft, pos_label=1, zero_division=0)
+# --- Plotting Function ---
+# (plot_evaluation_charts function is identical to the previous version)
+def plot_evaluation_charts(y_true_np, y_pred_proba_np, cm, model_name, gcs_bucket, gcs_output_prefix):
+    """Generates and saves Confusion Matrix, ROC, and PR curve plots."""
+    # 1. Confusion Matrix Plot
+    try:
+        fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, cbar=False)
+        ax_cm.set_title(f'{model_name} Confusion Matrix')
+        ax_cm.set_xlabel('Predicted Label')
+        ax_cm.set_ylabel('True Label')
+        save_plot_to_gcs(fig_cm, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_confusion_matrix.png")
+    except Exception as e: logging.error(f"Failed to generate or save Confusion Matrix plot: {e}")
+    # 2. ROC Curve Plot
+    try:
+        fig_roc, ax_roc = plt.subplots(figsize=(7, 6))
+        RocCurveDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_roc, name=model_name)
+        ax_roc.plot([0, 1], [0, 1], 'k--', label='Chance level (AUC = 0.5)')
+        ax_roc.set_title(f'{model_name} Receiver Operating Characteristic (ROC) Curve')
+        ax_roc.legend()
+        save_plot_to_gcs(fig_roc, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_roc_curve.png")
+    except Exception as e: logging.error(f"Failed to generate or save ROC Curve plot: {e}")
+    # 3. Precision-Recall Curve Plot
+    try:
+        fig_pr, ax_pr = plt.subplots(figsize=(7, 6))
+        PrecisionRecallDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_pr, name=model_name)
+        ax_pr.set_title(f'{model_name} Precision-Recall (PR) Curve')
+        save_plot_to_gcs(fig_pr, gcs_bucket, f"{gcs_output_prefix}/plots/{model_name.lower()}_pr_curve.png")
+    except Exception as e: logging.error(f"Failed to generate or save PR Curve plot: {e}")
 
-        custom_print_func("\nFT-Transformer Detailed Metrics on Test Set:")
-        custom_print_func(f"Accuracy: {accuracy_ft:.4f}")
-        custom_print_func(f"Precision (fraud): {precision_ft_fraud:.4f}")
-        custom_print_func(f"Recall/Sensitivity (fraud): {recall_ft_fraud:.4f}")
-        custom_print_func(f"F1-score (fraud): {f1_ft_fraud:.4f}")
+# --- SHAP Analysis Function ---
+# (perform_shap_analysis_ft using simplified numerical-only approach is identical to the previous version)
+def perform_shap_analysis_ft(model, train_loader, test_loader, feature_names_num, feature_names_cat, device, gcs_bucket, gcs_output_prefix, sample_size=100):
+    """Attempts SHAP analysis for FT-Transformer using DeepExplainer (simplified numerical only)."""
+    logging.warning("--- SHAP Analysis (FT-Transformer - DeepExplainer - Simplified) ---")
+    logging.warning("SHAP for Transformers is complex. Explaining numerical features only.")
+    logging.warning(f"Using background/explanation sample size: approx {sample_size}")
+    try:
+        model.eval()
+        # Get background samples (Num + Cat needed for wrapper)
+        bg_num_list, bg_cat_list = [], []
+        count = 0
+        for x_num, x_cat, _ in train_loader:
+             batch_size = x_num.shape[0]; needed = sample_size - count; take = min(needed, batch_size)
+             if needed <= 0: break
+             bg_num_list.append(x_num[:take]); bg_cat_list.append(x_cat[:take]); count += take
+        if not bg_num_list: raise ValueError("Could not get background samples for SHAP.")
+        background_num = torch.cat(bg_num_list).to(device); background_cat = torch.cat(bg_cat_list).to(device)
+        # Get test samples to explain
+        test_num_list, test_cat_list = [], []; count = 0
+        for x_num, x_cat, _ in test_loader:
+            batch_size = x_num.shape[0]; needed = sample_size - count; take = min(needed, batch_size)
+            if needed <= 0: break
+            test_num_list.append(x_num[:take]); test_cat_list.append(x_cat[:take]); count += take
+        if not test_num_list: raise ValueError("Could not get test samples for SHAP.")
+        test_sample_num = torch.cat(test_num_list).to(device)
+        # Wrapper class definition (simplified)
+        class ModelWrapperNumOnly(nn.Module):
+            def __init__(self, ft_model, fixed_cat_input):
+                super().__init__(); self.ft_model = ft_model
+                # Use the first background sample's cat features for all explanations in this simplified approach
+                self.fixed_cat_input_single = fixed_cat_input[0:1, :].to(device) # Shape [1, n_cat]
+            def forward(self, x_num):
+                fixed_cat_batch = self.fixed_cat_input_single.repeat(x_num.shape[0], 1) # Repeat for batch size
+                return self.ft_model(x_num, fixed_cat_batch)
+        # --- End Wrapper ---
+        wrapped_model = ModelWrapperNumOnly(model, background_cat)
+        start_shap_time = time.time(); logging.info("Initializing SHAP DeepExplainer...")
+        explainer = shap.DeepExplainer(wrapped_model, background_num)
+        logging.info(f"Calculating SHAP values for numerical features on {test_sample_num.shape[0]} test samples...")
+        shap_values_num_tensor = explainer.shap_values(test_sample_num)
+        end_shap_time = time.time(); logging.info(f"SHAP values (numerical) calculated in {end_shap_time - start_shap_time:.2f}s.")
+        # Process results (convert to numpy, plot, get importance)
+        shap_values_num_np = shap_values_num_tensor.cpu().numpy(); test_sample_num_np = test_sample_num.cpu().numpy()
+        test_sample_num_df = pd.DataFrame(test_sample_num_np, columns=feature_names_num)
+        fig_shap_num, ax_shap_num = plt.subplots(); shap.summary_plot(shap_values_num_np, test_sample_num_df, plot_type="dot", show=False)
+        plt.title("SHAP Summary Plot (FT-Transformer - Numerical Features Only)")
+        try: plt.tight_layout()
+        except: logging.warning("Could not apply tight_layout() to SHAP plot.")
+        save_plot_to_gcs(fig_shap_num, gcs_bucket, f"{gcs_output_prefix}/plots/ft_transformer_shap_summary_numerical.png")
+        mean_abs_shap_num = np.mean(np.abs(shap_values_num_np), axis=0)
+        feature_importance_num = pd.DataFrame({'feature': feature_names_num, 'mean_abs_shap': mean_abs_shap_num})
+        feature_importance_num = feature_importance_num.sort_values('mean_abs_shap', ascending=False)
+        logging.info("Top 10 Numerical features by Mean Absolute SHAP value:\n" + feature_importance_num.head(10).to_string())
+        logging.warning("SHAP values for categorical features were not calculated.")
+        return shap_values_num_np, feature_importance_num.to_dict('records')
+    except Exception as e:
+        logging.error(f"Failed during simplified SHAP analysis: {e}"); import traceback; logging.error(traceback.format_exc())
+        return None, None
 
-        try:
-            report_ft_str = classification_report(y_test_np, y_pred_ft, target_names=['Legit (0)', 'Fraud (1)'],
-                                                  zero_division=0)
-            custom_print_func("\nFT-Transformer Classification Report on Test Set:\n" + report_ft_str)
-        except ValueError:
-            report_ft_str = classification_report(y_test_np, y_pred_ft, zero_division=0)
-            custom_print_func(
-                "\nFT-Transformer Classification Report on Test Set (single class in y_pred or y_true):\n" + report_ft_str)
+# --- Main Execution ---
 
-        cm_ft = confusion_matrix(y_test_np, y_pred_ft)
-        custom_print_func("FT-Transformer Confusion Matrix on Test Set:\n" + str(cm_ft))
+def main(args):
+    logging.info("--- Starting FT-Transformer Training Pipeline ---")
+    GCS_BUCKET = args.gcs_bucket
+    GCS_OUTPUT_PREFIX = args.gcs_output_prefix.strip('/')
+    METADATA_URI = args.metadata_uri
 
-        roc_auc_ft = roc_auc_score(y_test_np, y_proba_ft)
-        pr_auc_ft = average_precision_score(y_test_np, y_proba_ft)
-        custom_print_func(f"\nFT-Transformer AUC-ROC on Test Set: {roc_auc_ft:.4f}")
-        custom_print_func(f"FT-Transformer AUC-PR (Average Precision) on Test Set: {pr_auc_ft:.4f}")
+    # --- 1. Setup Device ---
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        logging.info(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        logging.info("CUDA not available. Using CPU.")
 
-        fig_roc_ft = plt.figure(figsize=(8, 6))
-        fpr_ft, tpr_ft, _ = roc_curve(y_test_np, y_proba_ft)
-        plt.plot(fpr_ft, tpr_ft, label=f'FT-T (AUC-ROC = {roc_auc_ft:.2f})')
-        plt.plot([0, 1], [0, 1], 'k--')
-        plt.xlabel('False Positive Rate');
-        plt.ylabel('True Positive Rate');
-        plt.title('FT-Transformer ROC Curve')
-        plt.legend(loc='lower right');
-        plt.grid(True)
-        save_plot_func(fig_roc_ft, gcs_bucket_name, gcs_output_prefix, "ft_transformer_roc_curve")
+    # --- 2. Load FT-Transformer Specific Metadata --- ## UPDATED SECTION ##
+    logging.info(f"Loading FT-Transformer specific metadata from: {METADATA_URI}")
+    try:
+        metadata_blob_name = METADATA_URI.replace(f"gs://{GCS_BUCKET}/", "")
+        metadata_str = gcs_utils.download_blob_as_string(GCS_BUCKET, metadata_blob_name)
+        if metadata_str is None: raise FileNotFoundError("Could not download metadata file.")
+        metadata = json.loads(metadata_str)
+        logging.info("Metadata loaded successfully.")
 
-        fig_pr_ft = plt.figure(figsize=(8, 6))
-        precision_ft_curve, recall_ft_curve, _ = precision_recall_curve(y_test_np, y_proba_ft)
-        plt.plot(recall_ft_curve, precision_ft_curve, label=f'FT-T (AUC-PR = {pr_auc_ft:.2f})')
-        plt.xlabel('Recall (Sensitivity)');
-        plt.ylabel('Precision');
-        plt.title('FT-Transformer Precision-Recall Curve')
-        plt.legend(loc='lower left');
-        plt.grid(True)
-        save_plot_func(fig_pr_ft, gcs_bucket_name, gcs_output_prefix, "ft_transformer_pr_curve")
+        # Extract paths for FT-Transformer specific files
+        data_paths = metadata.get("gcs_paths", {})
+        x_train_num_path = data_paths.get("X_train_num_scaled", "").replace(f"gs://{GCS_BUCKET}/", "")
+        x_train_cat_path = data_paths.get("X_train_cat_indices", "").replace(f"gs://{GCS_BUCKET}/", "") # Path to indices
+        y_train_path = data_paths.get("y_train_resampled", "").replace(f"gs://{GCS_BUCKET}/", "")
+        x_test_num_path = data_paths.get("X_test_num_scaled", "").replace(f"gs://{GCS_BUCKET}/", "")
+        x_test_cat_path = data_paths.get("X_test_cat_indices", "").replace(f"gs://{GCS_BUCKET}/", "") # Path to indices
+        y_test_path = data_paths.get("y_test", "").replace(f"gs://{GCS_BUCKET}/", "")
 
-        # --- Save FT-Transformer Model to GCS ---
-        custom_print_func("\nSaving FT-Transformer model to GCS...")
-        try:
-            # Skorch models can be pickled.
-            model_bytes = pickle.dumps(best_ft_model)
-            model_blob_name = f"{gcs_output_prefix}/models/best_ft_transformer_model.pkl"
-            upload_bytes_func(gcs_bucket_name, model_bytes, model_blob_name, content_type='application/octet-stream')
-        except Exception as e:
-            custom_print_func(f"ERROR saving FT-Transformer model to GCS: {e}")
+        # Check if all required paths were found
+        required_paths = [x_train_num_path, x_train_cat_path, y_train_path, x_test_num_path, x_test_cat_path, y_test_path]
+        if not all(required_paths):
+            missing = [name for name, path in zip(["x_train_num", "x_train_cat", "y_train", "x_test_num", "x_test_cat", "y_test"], required_paths) if not path]
+            raise ValueError(f"Missing required data paths in metadata: {missing}. Ensure '{METADATA_URI}' is from preprocess_ft.py.")
 
-        # --- FT-Transformer Interpretability with SHAP ---
-        custom_print_func("\nFT-Transformer Interpretability using SHAP:")
-        custom_print_func("Note: SHAP for PyTorch models often uses DeepExplainer or GradientExplainer.")
-        custom_print_func("KernelExplainer can be a fallback but is slow. TreeExplainer is not for NNs.")
-
-        # For PyTorch models wrapped with skorch, SHAP can be tricky.
-        # We need to ensure the explainer can work with the underlying PyTorch model or its predict_proba.
-        # shap.Explainer might auto-detect, or we might need DeepExplainer.
-        # DeepExplainer requires a background dataset of tensors.
-
-        # Sample background data (from training set) and test data for SHAP
-        nsamples_background_shap = min(100, X_train_resampled.shape[0])
-        if nsamples_background_shap > 0:
-            # Convert numpy to tensor for DeepExplainer if that's chosen by shap.Explainer
-            background_data_torch = torch.tensor(
-                shap.sample(X_train_resampled, nsamples_background_shap, random_state=42).astype(np.float32)).to(
-                best_ft_model.device)
-
-            nsamples_test_shap = min(50, X_test_processed.shape[0])
-            if nsamples_test_shap > 0:
-                test_data_for_shap_torch = torch.tensor(
-                    shap.sample(X_test_processed, nsamples_test_shap, random_state=42).astype(np.float32)).to(
-                    best_ft_model.device)
-
-                try:
-                    custom_print_func(f"Initializing SHAP Explainer for FT-Transformer (this might take a moment)...")
-                    # Using shap.Explainer which should try to pick an appropriate one.
-                    # For PyTorch, it might pick DeepExplainer or GradientExplainer.
-                    # The model passed should be the underlying PyTorch model if possible, or predict_proba.
-                    # Skorch's .module_ gives the PyTorch module.
-                    # However, shap.Explainer might work better with the skorch wrapper directly if it understands its predict_proba.
-
-                    # Option 1: Try with skorch wrapper (might fall back to KernelExplainer if not directly supported)
-                    # explainer_ft = shap.Explainer(best_ft_model.predict_proba, background_data_torch)
-
-                    # Option 2: Try with underlying PyTorch module (might need DeepExplainer explicitly)
-                    # Need to handle the fact that predict_proba from skorch is not the same as forward from torch module
-                    # For DeepExplainer, the model should be the torch module, and output should be logits or probabilities.
-                    # This requires careful handling of the model's output format.
-
-                    # Let's try KernelExplainer as a robust fallback for skorch-wrapped PyTorch models.
-                    # It uses predict_proba, which skorch provides.
-                    explainer_ft = shap.KernelExplainer(best_ft_model.predict_proba,
-                                                        background_data.cpu().numpy())  # KernelExplainer needs numpy
-
-                    custom_print_func(
-                        f"Calculating SHAP values for {nsamples_test_shap} FT-Transformer test instances...")
-                    start_time_shap_ft = time.time()
-                    # KernelExplainer expects numpy array for explanation data
-                    shap_values_ft = explainer_ft.shap_values(test_data_for_shap_torch.cpu().numpy(), nsamples='auto')
-                    custom_print_func(
-                        f"FT-Transformer SHAP values calculation time: {time.time() - start_time_shap_ft:.2f} seconds")
-
-                    shap_values_for_positive_class_ft = shap_values_ft[1] if isinstance(shap_values_ft, list) and len(
-                        shap_values_ft) == 2 else shap_values_ft
-
-                    custom_print_func("\nGenerating FT-Transformer SHAP Summary Plot...")
-                    fig_shap_summary_ft = plt.figure()
-                    # For summary_plot, data can be DataFrame or numpy array. If numpy, feature_names are crucial.
-                    # If test_data_for_shap_torch was created from a DataFrame with processed_feature_names:
-                    if processed_feature_names and isinstance(test_data_for_shap_torch, torch.Tensor):
-                        test_data_display = pd.DataFrame(test_data_for_shap_torch.cpu().numpy(),
-                                                         columns=processed_feature_names)
-                    else:
-                        test_data_display = test_data_for_shap_torch.cpu().numpy()
-
-                    shap.summary_plot(shap_values_for_positive_class_ft, test_data_display,
-                                      feature_names=processed_feature_names if processed_feature_names else None,
-                                      show=False, plot_size=None)
-                    plt.title("SHAP Summary Plot for FT-Transformer (Fraud Class)")
-                    save_plot_func(fig_shap_summary_ft, gcs_bucket_name, gcs_output_prefix,
-                                   "ft_transformer_shap_summary_plot")
-                except Exception as e:
-                    custom_print_func(f"Error during FT-Transformer SHAP value calculation or plotting: {e}")
-            else:
-                custom_print_func("Not enough test samples to generate SHAP explanations for FT-Transformer.")
-        else:
-            custom_print_func("Not enough background samples for SHAP explainer for FT-Transformer.")
+        # Extract other necessary metadata
+        cat_cardinalities = metadata.get("cat_feature_cardinalities")
+        if not cat_cardinalities: raise ValueError("Categorical cardinalities ('cat_feature_cardinalities') not found in metadata.")
+        numerical_features_used = metadata.get("numerical_features_used", [])
+        categorical_features_used = metadata.get("categorical_features_used", [])
+        if not numerical_features_used: logging.warning("Numerical feature names not found in metadata.")
+        if not categorical_features_used: logging.warning("Categorical feature names not found in metadata.")
 
     except Exception as e:
-        custom_print_func(f"An error occurred during FT-Transformer training/tuning: {e}")
-        custom_print_func("Skipping FT-Transformer evaluation and SHAP.")
+        logging.error(f"Failed to load or parse metadata from {METADATA_URI}: {e}")
+        return
 
-    custom_print_func("\n--- FT-Transformer Pipeline Complete ---")
+    # --- 3. Load Processed Data (Numerical and Categorical Indices) --- ## UPDATED SECTION ##
+    try:
+        logging.info(f"Loading numerical training data from: {x_train_num_path}")
+        X_train_num_df = load_data_from_gcs(GCS_BUCKET, x_train_num_path)
+        logging.info(f"Loading categorical index training data from: {x_train_cat_path}")
+        X_train_cat_df = load_data_from_gcs(GCS_BUCKET, x_train_cat_path)
+        logging.info(f"Loading training target data from: {y_train_path}")
+        y_train_df = load_data_from_gcs(GCS_BUCKET, y_train_path)
 
+        logging.info(f"Loading numerical test data from: {x_test_num_path}")
+        X_test_num_df = load_data_from_gcs(GCS_BUCKET, x_test_num_path)
+        logging.info(f"Loading categorical index test data from: {x_test_cat_path}")
+        X_test_cat_df = load_data_from_gcs(GCS_BUCKET, x_test_cat_path)
+        logging.info(f"Loading test target data from: {y_test_path}")
+        y_test_df = load_data_from_gcs(GCS_BUCKET, y_test_path)
+    except Exception as e:
+        logging.error(f"Failed to load data from GCS paths specified in metadata: {e}")
+        return
+
+    # Convert to numpy arrays
+    X_train_num_np = X_train_num_df.values.astype(np.float32)
+    X_train_cat_np = X_train_cat_df.values.astype(np.int64) # Indices MUST be integer type
+    y_train_np = y_train_df.iloc[:, 0].values.astype(np.int64)
+    X_test_num_np = X_test_num_df.values.astype(np.float32)
+    X_test_cat_np = X_test_cat_df.values.astype(np.int64) # Indices MUST be integer type
+    y_test_np = y_test_df.iloc[:, 0].values.astype(np.int64)
+
+    # --- 4. Create DataLoaders ---
+    train_dataset = TabularDataset(X_train_num_np, X_train_cat_np, y_train_np)
+    test_dataset = TabularDataset(X_test_num_np, X_test_cat_np, y_test_np)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True if device.type == 'cuda' else False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True if device.type == 'cuda' else False)
+
+    # --- 5. Initialize Model, Criterion, Optimizer ---
+    n_num_features = X_train_num_np.shape[1] # Get actual count from loaded data
+    # Ensure cardinalities match the number of categorical features loaded
+    if len(cat_cardinalities) != X_train_cat_np.shape[1]:
+        logging.error(f"Mismatch between number of cardinalities ({len(cat_cardinalities)}) and number of loaded categorical features ({X_train_cat_np.shape[1]}). Check metadata and preprocessing.")
+        return
+
+    model = rtdl.FTTransformer(
+        n_num_features=n_num_features,
+        cat_cardinalities=cat_cardinalities,
+        d_token=args.ft_d_token, n_blocks=args.ft_n_blocks, attention_n_heads=args.ft_n_heads,
+        attention_dropout=args.ft_attention_dropout, ffn_d_hidden=int(args.ft_d_token * args.ft_ffn_factor),
+        ffn_dropout=args.ft_ffn_dropout, residual_dropout=args.ft_residual_dropout,
+        d_out=1,
+    ).to(device)
+    logging.info(f"FT-Transformer Model Architecture:\n{model}")
+    logging.info(f"Using {n_num_features} numerical features and {len(cat_cardinalities)} categorical features.")
+    logging.info(f"Categorical cardinalities: {cat_cardinalities}")
+
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+
+    # --- 6. Training Loop ---
+    logging.info("--- Starting Training ---")
+    total_train_time = 0; epoch_losses = []
+    for epoch in range(1, args.epochs + 1):
+        avg_loss, duration = train_epoch_ft(model, train_loader, criterion, optimizer, device, epoch)
+        epoch_losses.append(avg_loss); total_train_time += duration
+    logging.info(f"--- Training Finished --- Total Duration: {total_train_time:.2f}s")
+
+    # --- 7. Evaluate on Test Set ---
+    logging.info("Evaluating model on test set...")
+    test_loss, test_metrics, test_cm = evaluate_model_ft(model, test_loader, criterion, device)
+
+    # Retrieve probabilities needed for plotting
+    all_probs_list = []; all_targets_list = []
+    model.eval()
+    with torch.no_grad():
+        for x_num, x_cat, targets in test_loader:
+            x_num, x_cat = x_num.to(device), x_cat.to(device)
+            outputs_logits = model(x_num, x_cat)
+            outputs_probs = torch.sigmoid(outputs_logits).squeeze()
+            all_probs_list.append(outputs_probs.cpu().numpy())
+            all_targets_list.append(targets.cpu().numpy()) # Targets are already on CPU/numpy
+    y_pred_proba_np = np.concatenate(all_probs_list)
+    y_true_np = np.concatenate(all_targets_list)
+
+    # --- 8. Generate and Save Plots ---
+    plot_evaluation_charts(y_true_np, y_pred_proba_np, test_cm, 'FT-Transformer', GCS_BUCKET, GCS_OUTPUT_PREFIX)
+
+    # --- 9. Perform SHAP Analysis (Simplified Numerical Only) ---
+    shap_values = None; shap_feature_importance = None
+    if args.run_shap:
+        # Pass feature names extracted from metadata
+        shap_values, shap_feature_importance = perform_shap_analysis_ft(
+            model, train_loader, test_loader, numerical_features_used, categorical_features_used, device,
+            GCS_BUCKET, GCS_OUTPUT_PREFIX, sample_size=args.shap_sample_size
+        )
+    else:
+        logging.info("SHAP analysis skipped as per --run-shap flag.")
+
+    # --- 10. Save Model ---
+    model_blob_name = f"{GCS_OUTPUT_PREFIX}/model/ft_transformer_model_state_dict.pt"
+    save_model_to_gcs(model.state_dict(), GCS_BUCKET, model_blob_name)
+
+    # --- 11. Save Logs and Metrics ---
+    logging.info("Saving final logs and metrics...")
+    log_summary = {
+        "model_type": "FT-Transformer", "script_args": vars(args), "device_used": str(device),
+        "metadata_source": METADATA_URI, #"model_architecture": str(model), # Can be too verbose
+        "n_numerical_features": n_num_features, "categorical_cardinalities": cat_cardinalities,
+        "training_duration_seconds": total_train_time, "training_avg_loss_per_epoch": epoch_losses,
+        "test_set_evaluation": {"loss": test_loss, "metrics": test_metrics},
+        "shap_analysis_run": args.run_shap, "shap_top_numerical_features": shap_feature_importance,
+        "output_gcs_prefix": f"gs://{GCS_BUCKET}/{GCS_OUTPUT_PREFIX}",
+        "saved_model_path": f"gs://{GCS_BUCKET}/{model_blob_name}"
+    }
+    log_blob_name = f"{GCS_OUTPUT_PREFIX}/logs/ft_transformer_training_log.json"
+    try:
+        log_string = json.dumps(log_summary, indent=4, default=str)
+        gcs_utils.upload_string_to_gcs(GCS_BUCKET, log_string, log_blob_name, content_type='application/json')
+        logging.info(f"Log summary saved to gs://{GCS_BUCKET}/{log_blob_name}")
+    except Exception as e:
+        logging.error(f"Failed to save log summary: {e}")
+
+    logging.info("--- FT-Transformer Training Pipeline Finished ---")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train and evaluate an FT-Transformer model using PyTorch on GPU.")
+    parser.add_argument("--gcs-bucket", type=str, required=True, help="GCS bucket name.")
+    # Updated help text for metadata URI
+    parser.add_argument("--metadata-uri", type=str, required=True, help="GCS URI of the preprocessing_ft_metadata.json file (generated by preprocess_ft.py).")
+    parser.add_argument("--gcs-output-prefix", type=str, required=True, help="GCS prefix for saving outputs.")
+    # Training Hyperparameters
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs.")
+    parser.add_argument("--batch-size", type=int, default=512, help="Batch size.")
+    parser.add_argument("--learning-rate", type=float, default=1e-4, help="Optimizer learning rate.")
+    parser.add_argument("--weight-decay", type=float, default=1e-5, help="AdamW weight decay.")
+    parser.add_argument("--num-workers", type=int, default=2, help="DataLoader workers.")
+    # FT-Transformer Specific Hyperparameters
+    parser.add_argument("--ft-d-token", type=int, default=192, help="Dimension of embeddings/transformer layers.")
+    parser.add_argument("--ft-n-blocks", type=int, default=3, help="Number of transformer blocks.")
+    parser.add_argument("--ft-n-heads", type=int, default=8, help="Number of attention heads.")
+    parser.add_argument("--ft-attention-dropout", type=float, default=0.2, help="Dropout rate for attention.")
+    parser.add_argument("--ft-ffn-dropout", type=float, default=0.1, help="Dropout rate for feed-forward layers.")
+    parser.add_argument("--ft-residual-dropout", type=float, default=0.0, help="Dropout for residual connections.")
+    parser.add_argument("--ft-ffn-factor", type=float, default=4/3, help="Multiplier for FFN hidden dim.")
+    # SHAP arguments
+    parser.add_argument("--run-shap", action='store_true', help="Run SHAP analysis (experimental simplified version).")
+    parser.add_argument("--shap-sample-size", type=int, default=200, help="Approx number of samples for SHAP.")
+
+    args = parser.parse_args()
+    main(args)
