@@ -30,7 +30,7 @@ echo "Verifying Python installation..."
 python3.10 --version
 
 # Deleting tar
-cd ..
+
 rm Python-$PYTHON_VERSION.tgz
 
 # Create a Python virtual environment
