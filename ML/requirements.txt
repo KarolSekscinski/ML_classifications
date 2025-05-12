@@ -11,14 +11,3 @@ joblib>=1.1,<1.5 # For saving CPU models
 
 # CPU Specific
 xgboost>=1.6,<2.1
-
-# GPU Specific (PyTorch 2.3 for CUDA 12.3)
-# Check https://pytorch.org/get-started/locally/ for correct install command
-# Example using pip:
-# torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu121
-# OR adjust based on your exact CUDA version if not 12.1 (though 12.3 should work with cu121)
-torch>=2.3.0 # Make sure CUDA version matches your env (e.g., +cu121)
-torchvision>=0.18.0 # Often installed with torch
-torchaudio>=2.3.0 # Often installed with torch
-torchmetrics>=0.11,<1.4 # Check compatibility with torch 2.3
-rtdl>=0.0.12 # Library for FT-Transformer, check latest version
