@@ -22,7 +22,7 @@ METADATA_URI_OHE="gs://$GCS_BUCKET/NeurIPS/metadata/preprocessing_metadata.json"
 METADATA_URI_FT="gs://$GCS_BUCKET/NeurIPS/metadata/preprocessing_ft_metadata.json" # Adjust path if different
 
 # Define base GCS prefixes for results
-RESULTS_BASE_PREFIX="NeurIPS_GPU/results" # Store GPU results separately
+RESULTS_BASE_PREFIX="NeurIPS/results" # Store GPU results separately
 
 # Define paths to the python pipeline scripts
 MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/mlp_pipeline.py" # Adjust path as needed
