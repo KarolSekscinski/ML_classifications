@@ -29,6 +29,9 @@ sudo make altinstall
 echo "Verifying Python installation..."
 python3.10 --version
 
+# Deleting tar
+cd ..
+rm Python-$PYTHON_VERSION.tgz
 
 # Create a Python virtual environment
 echo "Creating a Python virtual environment..."
@@ -40,14 +43,13 @@ source my_venv/bin/activate
 
 # Install required Python packages
 echo "Installing Python packages from requirements.txt..."
-cd ../../
-pip install -r requirements.txt
+pip install -r ML_classifications/ML/requirements.txt
 
 echo "Setup complete!"
 
 echo "now run svm pipeline"
 
-python src/gcs/svm_pipeline.py \
+python ML_classifications/ML/src/gcs/svm_pipeline.py \
     --gcs-bucket licencjat_ml_classification \
     --metadata-uri gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json \
     --gcs-output-prefix NeurIPS/results/svm_run_$(date +%Y%m%d_%H%M%S) \
@@ -56,7 +58,7 @@ python src/gcs/svm_pipeline.py \
 
 echo "Finished SVM training"
 
-python xgboost_pipeline.py \
+python ML_classifications/ML/src/gcs/xgboost_pipeline.py \
     --gcs-bucket licencjat_ml_classification \
     --metadata-uri gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json \
     --gcs-output-prefix NeurIPS/results/xgb_run_$(date +%Y%m%d_%H%M%S) \
