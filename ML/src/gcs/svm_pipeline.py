@@ -208,7 +208,7 @@ def main(args):
     logging.info("--- Starting SVM Training Pipeline ---")
     GCS_BUCKET = args.gcs_bucket
     # Ensure prefixes don't have leading/trailing slashes for consistency
-    GCS_INPUT_PREFIX = args.gcs_input_prefix.strip('/')
+    # GCS_INPUT_PREFIX = args.gcs_input_prefix.strip('/')
     GCS_OUTPUT_PREFIX = args.gcs_output_prefix.strip('/')
     METADATA_URI = args.metadata_uri
 
