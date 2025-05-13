@@ -1,12 +1,16 @@
 # Part of ML_classifications/ML/gpu.txt
 
-torch==1.9.1+cu111
-torchvision==0.10.1+cu111
-torchaudio==0.9.1+cu111
+# PyTorch, torchvision, torchaudio for PyTorch 1.11.0 with CUDA 11.3 support
+torch==1.11.0+cu113
+torchvision==0.12.0+cu113
+torchaudio==0.11.0+cu113
 --find-links https://download.pytorch.org/whl/torch_stable.html
 
-# TorchMetrics (using a specific version that should be compatible)
-torchmetrics==0.11.4 # Last version in the 0.11 series
+# TorchMetrics compatible with Torch 1.11.0
+torchmetrics==0.11.4
+
+# rtdl version compatible with Torch < 2.0
+rtdl==0.0.13
 
 # --- Other packages from your gpu.txt should follow ---
 # Example:
@@ -17,7 +21,6 @@ torchmetrics==0.11.4 # Last version in the 0.11 series
 # google-cloud-storage>=2.5,<3.0
 # matplotlib>=3.5,<3.9
 # seaborn>=0.11,<0.14
-shap>=0.41,<0.46
+# shap>=0.41,<0.46
 # joblib>=1.1,<1.5
-rtdl==0.0.13 # Or rtdl>=0.0.12
 # xgboost>=1.6,<2.1

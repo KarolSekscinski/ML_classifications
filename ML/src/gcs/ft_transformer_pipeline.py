@@ -328,12 +328,21 @@ def main(args):
         logging.error(f"Mismatch between number of cardinalities ({len(cat_cardinalities)}) and number of loaded categorical features ({X_train_cat_np.shape[1]}). Check metadata and preprocessing.")
         return
 
+    # In ft_transformer_pipeline.py, around line 331:
+
     model = rtdl.FTTransformer(
-        n_num_features=n_num_features,
+        n_cont_features=n_num_features,  # RENAMED from n_num_features
         cat_cardinalities=cat_cardinalities,
-        d_token=args.ft_d_token, n_blocks=args.ft_n_blocks, attention_n_heads=args.ft_n_heads,
-        attention_dropout=args.ft_attention_dropout, ffn_d_hidden=int(args.ft_d_token * args.ft_ffn_factor),
-        ffn_dropout=args.ft_ffn_dropout, residual_dropout=args.ft_residual_dropout,
+        d_token=args.ft_d_token,
+        n_blocks=args.ft_n_blocks,
+        attention_n_heads=args.ft_n_heads,
+        attention_dropout=args.ft_attention_dropout,
+        ffn_d_hidden_factor=args.ft_ffn_factor,  # CHANGED: Pass the factor directly
+        ffn_dropout=args.ft_ffn_dropout,
+        residual_dropout=args.ft_residual_dropout,
+        # The older rtdl versions have defaults for 'activation', 'prenormalization', 'initialization'
+        # which are often 'reglu', True, and 'kaiming' respectively.
+        # We will rely on those defaults unless you want to add them as command-line arguments.
         d_out=1,
     ).to(device)
     logging.info(f"FT-Transformer Model Architecture:\n{model}")

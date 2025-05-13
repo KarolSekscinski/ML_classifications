@@ -143,61 +143,110 @@ def plot_evaluation_charts(calibrated_model, X_test, y_test, cm, model_name, gcs
 
 # perform_shap_analysis uses KernelExplainer which requires predict_proba, compatible with CalibratedClassifierCV
 # Note: It will still be slow, but potentially faster than KernelExplainer on SVC(kernel='rbf')
-def perform_shap_analysis(calibrated_model, X_train, X_test, feature_names, gcs_bucket, gcs_output_prefix, sample_size=100):
+def perform_shap_analysis(calibrated_model, X_train, X_test, feature_names, gcs_bucket, gcs_output_prefix,
+                          sample_size=100):
     """Performs SHAP analysis using KernelExplainer on the CalibratedClassifierCV model."""
     logging.warning("--- SHAP Analysis (LinearSVC + Calibrated - KernelExplainer) ---")
-    logging.warning(f"KernelExplainer can be slow. Using background sample size {min(sample_size, X_train.shape[0])} and explaining {min(sample_size, X_test.shape[0])} samples.")
+    logging.warning(
+        f"KernelExplainer can be slow. Using background sample size {min(sample_size, X_train.shape[0])} and explaining {min(sample_size, X_test.shape[0])} samples.")
 
     try:
-        # Sample background data
-        X_train_summary = shap.sample(X_train, min(sample_size, X_train.shape[0]), random_state=42)
-        # Ensure background data is numpy array for KernelExplainer
-        if isinstance(X_train_summary, pd.DataFrame):
-             X_train_summary_np = X_train_summary.values
+        # Ensure X_train and X_test are NumPy arrays for SHAP operations
+        # feature_names is the list of processed feature names from metadata
+        if isinstance(X_train, pd.DataFrame):
+            # Verify column consistency before converting, though X_train should already match feature_names
+            if list(X_train.columns) != feature_names:
+                logging.warning(
+                    "X_train columns do not match provided feature_names. This might indicate an issue. Using X_train.values.")
+            X_train_np = X_train.values
+        elif isinstance(X_train, np.ndarray):
+            X_train_np = X_train
         else:
-             X_train_summary_np = X_train_summary
+            logging.error(f"X_train is of unexpected type: {type(X_train)}. SHAP analysis might fail.")
+            return None, None
 
-        # Sample data to explain
-        X_test_sample = shap.sample(X_test, min(sample_size, X_test.shape[0]), random_state=43)
-        # Ensure data to explain is DataFrame for feature names
-        if isinstance(X_test_sample, pd.DataFrame):
-             X_test_sample_df = X_test_sample
+        if isinstance(X_test, pd.DataFrame):
+            if list(X_test.columns) != feature_names:
+                logging.warning(
+                    "X_test columns do not match provided feature_names. This might indicate an issue. Using X_test.values.")
+            X_test_np = X_test.values
+        elif isinstance(X_test, np.ndarray):
+            X_test_np = X_test
         else:
-             X_test_sample_df = pd.DataFrame(X_test_sample, columns=feature_names)
+            logging.error(f"X_test is of unexpected type: {type(X_test)}. SHAP analysis might fail.")
+            return None, None
+
+        # Check for feature count consistency
+        if X_train_np.shape[1] != len(feature_names):
+            logging.error(
+                f"Feature count mismatch: X_train_np has {X_train_np.shape[1]} features, but {len(feature_names)} feature_names provided.")
+            return None, None
+        if X_test_np.shape[1] != len(feature_names):
+            logging.error(
+                f"Feature count mismatch: X_test_np has {X_test_np.shape[1]} features, but {len(feature_names)} feature_names provided.")
+            return None, None
+
+        # Sample background data (NumPy)
+        X_train_summary_np = shap.sample(X_train_np, min(sample_size, X_train_np.shape[0]), random_state=42)
+
+        # Sample data to explain (NumPy)
+        X_test_sample_np = shap.sample(X_test_np, min(sample_size, X_test_np.shape[0]), random_state=43)
 
         # KernelExplainer needs predict_proba, which CalibratedClassifierCV provides
         if not hasattr(calibrated_model, "predict_proba"):
-             logging.error("Calibrated model does not have predict_proba method. Cannot compute SHAP values.")
-             return None, None
+            logging.error("Calibrated model does not have predict_proba method. Cannot compute SHAP values.")
+            return None, None
 
         start_shap_time = time.time()
         logging.info("Initializing SHAP KernelExplainer...")
-        # Pass the predict_proba method of the calibrated model
+        # Pass the predict_proba method of the calibrated model and NumPy background data
         explainer = shap.KernelExplainer(calibrated_model.predict_proba, X_train_summary_np)
 
-        logging.info(f"Calculating SHAP values for {X_test_sample_df.shape[0]} test samples...")
-        shap_values = explainer.shap_values(X_test_sample_df)
+        logging.info(f"Calculating SHAP values for {X_test_sample_np.shape[0]} test samples (using NumPy array)...")
+        # Pass NumPy array for data to explain
+        shap_values_output = explainer.shap_values(X_test_sample_np)
         end_shap_time = time.time()
         logging.info(f"SHAP values calculated in {end_shap_time - start_shap_time:.2f} seconds.")
 
         # shap_values output depends on the number of classes. For binary: list [shap_class_0, shap_class_1]
-        shap_values_pos_class = shap_values[1] # Assuming interest in the positive class (class 1)
+        # Or it could be a single array if the explainer/model simplifies output for binary.
+        if isinstance(shap_values_output, list) and len(shap_values_output) == 2:
+            shap_values_pos_class = shap_values_output[1]  # Assuming interest in the positive class (class 1)
+        elif isinstance(shap_values_output, np.ndarray):  # Might return a single array for binary cases
+            shap_values_pos_class = shap_values_output
+        else:
+            logging.error(
+                f"Unexpected SHAP values output format: type {type(shap_values_output)}, length {len(shap_values_output) if isinstance(shap_values_output, list) else 'N/A'}")
+            return None, None
 
-        # Generate and save summary plot
+        # Debugging: Print shapes just before the plot call
+        logging.info(f"Shape of shap_values_pos_class for plot: {shap_values_pos_class.shape}")
+        logging.info(f"Shape of X_test_sample_np for plot: {X_test_sample_np.shape}")
+        logging.info(f"Number of feature_names for plot: {len(feature_names)}")
+
+        # Generate and save summary plot using NumPy array and explicit feature_names
         fig_shap, ax_shap = plt.subplots()
-        shap.summary_plot(shap_values_pos_class, X_test_sample_df, plot_type="dot", show=False)
+        shap.summary_plot(shap_values_pos_class, X_test_sample_np, feature_names=feature_names, plot_type="dot",
+                          show=False)
         plt.title("SHAP Summary Plot (LinearSVC + Calibrated - Positive Class)")
-        try: plt.tight_layout()
-        except Exception: logging.warning("Could not apply tight_layout() to SHAP plot.")
-        save_plot_to_gcs(fig_shap, gcs_bucket, f"{gcs_output_prefix}/plots/linearsvc_shap_summary.png") # Change filename
+        try:
+            plt.tight_layout()
+        except Exception:
+            logging.warning("Could not apply tight_layout() to SHAP plot.")
+        save_plot_to_gcs(fig_shap, gcs_bucket, f"{gcs_output_prefix}/plots/linearsvc_shap_summary.png")
 
-        # Calculate mean absolute SHAP values
         mean_abs_shap = np.mean(np.abs(shap_values_pos_class), axis=0)
-        feature_importance = pd.DataFrame({'feature': feature_names, 'mean_abs_shap': mean_abs_shap})
-        feature_importance = feature_importance.sort_values('mean_abs_shap', ascending=False)
-        logging.info("Top 10 features by Mean Absolute SHAP value:\n" + feature_importance.head(10).to_string())
+        # Ensure feature_importance DataFrame gets the correct number of feature names
+        if len(feature_names) == len(mean_abs_shap):
+            feature_importance = pd.DataFrame({'feature': feature_names, 'mean_abs_shap': mean_abs_shap})
+            feature_importance = feature_importance.sort_values('mean_abs_shap', ascending=False)
+            logging.info("Top 10 features by Mean Absolute SHAP value:\n" + feature_importance.head(10).to_string())
+        else:
+            logging.error(
+                "Mismatch between number of feature names and mean_abs_shap values. Cannot create feature importance table.")
+            feature_importance = pd.DataFrame()  # Empty dataframe
 
-        return shap_values, feature_importance.to_dict('records')
+        return shap_values_pos_class, feature_importance.to_dict('records') if not feature_importance.empty else None
 
     except Exception as e:
         logging.error(f"Failed during SHAP analysis: {e}")
