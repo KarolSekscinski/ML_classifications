@@ -322,29 +322,51 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True if device.type == 'cuda' else False)
 
     # --- 5. Initialize Model, Criterion, Optimizer ---
-    n_num_features = X_train_num_np.shape[1] # Get actual count from loaded data
-    # Ensure cardinalities match the number of categorical features loaded
+    n_num_features = X_train_num_np.shape[1]
     if len(cat_cardinalities) != X_train_cat_np.shape[1]:
-        logging.error(f"Mismatch between number of cardinalities ({len(cat_cardinalities)}) and number of loaded categorical features ({X_train_cat_np.shape[1]}). Check metadata and preprocessing.")
+        logging.error(
+            f"Mismatch between number of cardinalities ({len(cat_cardinalities)}) and number of loaded categorical features ({X_train_cat_np.shape[1]}). Check metadata and preprocessing.")
         return
 
-    # In ft_transformer_pipeline.py, around line 331:
+    # Calculate ffn_d_hidden based on d_token and the factor from args
+    # This matches how make_baseline calculates it if using ReGLU (default in baseline_subconfig)
+    # For ReGLU, ffn_d_hidden should be d_token * (4/3) * 2 / 2 = d_token * (4/3)
+    # More precisely, ffn_d_hidden is the *input* to the second linear layer.
+    # If using ReGLU, the first FFN layer outputs 2 * ffn_d_hidden, then ReGLU halves it to ffn_d_hidden.
+    # The make_baseline expects ffn_d_hidden, which is usually d_token * ffn_d_hidden_factor (where factor is often 4/3 or 2)
+    calculated_ffn_d_hidden = int(args.ft_d_token * args.ft_ffn_factor)
+    logging.info(
+        f"Using calculated ffn_d_hidden: {calculated_ffn_d_hidden} (d_token: {args.ft_d_token}, ffn_factor: {args.ft_ffn_factor})")
 
-    model = rtdl.FTTransformer(
-        n_cont_features=n_num_features,  # RENAMED from n_num_features
-        cat_cardinalities=cat_cardinalities,
-        d_token=args.ft_d_token,
-        n_blocks=args.ft_n_blocks,
-        attention_n_heads=args.ft_n_heads,
-        attention_dropout=args.ft_attention_dropout,
-        ffn_d_hidden_factor=args.ft_ffn_factor,  # CHANGED: Pass the factor directly
-        ffn_dropout=args.ft_ffn_dropout,
-        residual_dropout=args.ft_residual_dropout,
-        # The older rtdl versions have defaults for 'activation', 'prenormalization', 'initialization'
-        # which are often 'reglu', True, and 'kaiming' respectively.
-        # We will rely on those defaults unless you want to add them as command-line arguments.
-        d_out=1
-    ).to(device)
+    logging.info("Initializing FTTransformer using make_baseline...")
+    try:
+        model = rtdl.FTTransformer.make_baseline(
+            n_num_features=n_num_features,
+            cat_cardinalities=cat_cardinalities if cat_cardinalities else None,  # Pass None if no categorical features
+            d_token=args.ft_d_token,
+            n_blocks=args.ft_n_blocks,
+            attention_dropout=args.ft_attention_dropout,
+            ffn_d_hidden=calculated_ffn_d_hidden,
+            ffn_dropout=args.ft_ffn_dropout,
+            residual_dropout=args.ft_residual_dropout,
+            d_out=1,  # Output dimension for binary classification
+            # The following parameters are part of the FTTransformer.get_baseline_transformer_subconfig()
+            # and are not directly passed to make_baseline, but d_token should be compatible with attention_n_heads (default 8)
+            # attention_n_heads is set internally by make_baseline via get_baseline_transformer_subconfig
+        ).to(device)
+        logging.info(f"FT-Transformer Model Architecture (using make_baseline):\n{model}")
+    except Exception as e:
+        logging.error(f"Failed to initialize FTTransformer.make_baseline: {e}")
+        logging.error(
+            "Please check your rtdl version and the arguments being passed, especially d_token compatibility with default n_heads=8.")
+        import traceback
+        logging.error(traceback.format_exc())
+        return
+
+    logging.info(
+        f"Using {n_num_features} numerical features and {len(cat_cardinalities) if cat_cardinalities else 0} categorical features.")
+    if cat_cardinalities:
+        logging.info(f"Categorical cardinalities: {cat_cardinalities}")
     logging.info(f"FT-Transformer Model Architecture:\n{model}")
     logging.info(f"Using {n_num_features} numerical features and {len(cat_cardinalities)} categorical features.")
     logging.info(f"Categorical cardinalities: {cat_cardinalities}")
