@@ -72,19 +72,19 @@ fi
 
 # --- Run GPU Pipelines ---
 
-echo "Starting MLP pipeline execution..."
-python "$MLP_SCRIPT_PATH" \
-    --gcs-bucket "$GCS_BUCKET" \
-    --metadata-uri "$METADATA_URI_OHE" \
-    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 50 \
-    --batch-size 512 \
-    --learning-rate 1e-4 \
-    --mlp-hidden-dims "256,128,64" \
-    --run-shap # Add this flag to compute SHAP values
+#echo "Starting MLP pipeline execution..."
+#python "$MLP_SCRIPT_PATH" \
+#    --gcs-bucket "$GCS_BUCKET" \
+#    --metadata-uri "$METADATA_URI_OHE" \
+#    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
+#    --epochs 50 \
+#    --batch-size 512 \
+#    --learning-rate 1e-4 \
+#    --mlp-hidden-dims "256,128,64" \
+#    --run-shap # Add this flag to compute SHAP values
 
-echo "Finished MLP pipeline execution."
-echo "------------------------------------"
+#echo "Finished MLP pipeline execution."
+#echo "------------------------------------"
 
 
 echo "Starting FT-Transformer pipeline execution..."
@@ -93,12 +93,12 @@ python "$FT_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 50 \
+    --epochs 30 \
     --batch-size 256 \
     --learning-rate 1e-4 \
     --ft-n-blocks 3 \
     --ft-d-token 192 \
-    --run-shap # Optional and experimental
+#    --run-shap # Optional and experimental
 
 echo "Finished FT-Transformer pipeline execution."
 echo "------------------------------------"
