@@ -178,62 +178,131 @@ def plot_evaluation_charts(y_true_np, y_pred_proba_np, cm, model_name, gcs_bucke
 
 # --- SHAP Analysis Function ---
 # (perform_shap_analysis_ft using simplified numerical-only approach is identical to the previous version)
-def perform_shap_analysis_ft(model, train_loader, test_loader, feature_names_num, feature_names_cat, device, gcs_bucket, gcs_output_prefix, sample_size=100):
-    """Attempts SHAP analysis for FT-Transformer using DeepExplainer (simplified numerical only)."""
-    logging.warning("--- SHAP Analysis (FT-Transformer - DeepExplainer - Simplified) ---")
-    logging.warning("SHAP for Transformers is complex. Explaining numerical features only.")
-    logging.warning(f"Using background/explanation sample size: approx {sample_size}")
+def perform_shap_analysis_ft(model, train_loader, test_loader, feature_names_num, feature_names_cat, device, gcs_bucket,
+                             gcs_output_prefix, sample_size=50, explain_sample_size=10):  # Reduced sample sizes
+    """Attempts SHAP analysis for FT-Transformer using KernelExplainer (simplified numerical only)."""
+    logging.warning("--- SHAP Analysis (FT-Transformer - KernelExplainer - Simplified) ---")
+    logging.warning("KernelExplainer is model-agnostic but can be VERY SLOW.")
+    logging.warning(f"Using background sample size: {sample_size} (from train_loader)")
+    logging.warning(f"Explaining sample size: {explain_sample_size} (from test_loader)")
+
     try:
         model.eval()
-        # Get background samples (Num + Cat needed for wrapper)
-        bg_num_list, bg_cat_list = [], []
+
+        # Get background samples (Numerical part for the wrapper)
+        bg_num_list, bg_cat_list = [], []  # Need categoricals for the fixed part of the wrapper
         count = 0
         for x_num, x_cat, _ in train_loader:
-             batch_size = x_num.shape[0]; needed = sample_size - count; take = min(needed, batch_size)
-             if needed <= 0: break
-             bg_num_list.append(x_num[:take]); bg_cat_list.append(x_cat[:take]); count += take
-        if not bg_num_list: raise ValueError("Could not get background samples for SHAP.")
-        background_num = torch.cat(bg_num_list).to(device); background_cat = torch.cat(bg_cat_list).to(device)
-        # Get test samples to explain
-        test_num_list, test_cat_list = [], []; count = 0
-        for x_num, x_cat, _ in test_loader:
-            batch_size = x_num.shape[0]; needed = sample_size - count; take = min(needed, batch_size)
+            batch_size = x_num.shape[0];
+            needed = sample_size - count;
+            take = min(needed, batch_size)
             if needed <= 0: break
-            test_num_list.append(x_num[:take]); test_cat_list.append(x_cat[:take]); count += take
+            bg_num_list.append(x_num[:take]);
+            bg_cat_list.append(x_cat[:take]);
+            count += take
+        if not bg_num_list: raise ValueError("Could not get background samples for SHAP.")
+        background_num_for_masker = torch.cat(bg_num_list).cpu().numpy()  # KernelExplainer usually expects numpy
+        fixed_cat_for_predict_fn = torch.cat(bg_cat_list).to(device)  # Keep on device for model call
+
+        # Get test samples to explain (Numerical part)
+        test_num_list = []
+        count = 0
+        for x_num, _, _ in test_loader:  # Only need x_num for explaining
+            batch_size = x_num.shape[0];
+            needed = explain_sample_size - count;
+            take = min(needed, batch_size)
+            if needed <= 0: break
+            test_num_list.append(x_num[:take]);
+            count += take
         if not test_num_list: raise ValueError("Could not get test samples for SHAP.")
-        test_sample_num = torch.cat(test_num_list).to(device)
-        # Wrapper class definition (simplified)
-        class ModelWrapperNumOnly(nn.Module):
-            def __init__(self, ft_model, fixed_cat_input):
-                super().__init__(); self.ft_model = ft_model
-                # Use the first background sample's cat features for all explanations in this simplified approach
-                self.fixed_cat_input_single = fixed_cat_input[0:1, :].to(device) # Shape [1, n_cat]
-            def forward(self, x_num):
-                fixed_cat_batch = self.fixed_cat_input_single.repeat(x_num.shape[0], 1) # Repeat for batch size
-                return self.ft_model(x_num, fixed_cat_batch)
-        # --- End Wrapper ---
-        wrapped_model = ModelWrapperNumOnly(model, background_cat)
-        start_shap_time = time.time(); logging.info("Initializing SHAP DeepExplainer...")
-        explainer = shap.DeepExplainer(wrapped_model, background_num)
-        logging.info(f"Calculating SHAP values for numerical features on {test_sample_num.shape[0]} test samples...")
-        shap_values_num_tensor = explainer.shap_values(test_sample_num)
-        end_shap_time = time.time(); logging.info(f"SHAP values (numerical) calculated in {end_shap_time - start_shap_time:.2f}s.")
-        # Process results (convert to numpy, plot, get importance)
-        shap_values_num_np = shap_values_num_tensor.cpu().numpy(); test_sample_num_np = test_sample_num.cpu().numpy()
-        test_sample_num_df = pd.DataFrame(test_sample_num_np, columns=feature_names_num)
-        fig_shap_num, ax_shap_num = plt.subplots(); shap.summary_plot(shap_values_num_np, test_sample_num_df, plot_type="dot", show=False)
-        plt.title("SHAP Summary Plot (FT-Transformer - Numerical Features Only)")
-        try: plt.tight_layout()
-        except: logging.warning("Could not apply tight_layout() to SHAP plot.")
-        save_plot_to_gcs(fig_shap_num, gcs_bucket, f"{gcs_output_prefix}/plots/ft_transformer_shap_summary_numerical.png")
+        test_sample_num_np = torch.cat(test_num_list).cpu().numpy()  # KernelExplainer usually expects numpy
+
+        # Define the prediction function for KernelExplainer (wrapper)
+        # This function will take numerical features (as numpy) and use fixed categoricals
+        # We'll use the first 'sample_size' categorical features from the background_cat as fixed
+        fixed_cat_subset = fixed_cat_for_predict_fn[:test_sample_num_np.shape[0]]  # Match batch size of data to explain
+
+        def predict_fn_for_kernel(x_num_np_batch):
+            x_num_torch = torch.tensor(x_num_np_batch, dtype=torch.float32).to(device)
+            # Ensure fixed_cat_subset matches the current batch size being perturbed by KernelExplainer
+            current_batch_size = x_num_torch.shape[0]
+
+            # If fixed_cat_subset has more samples than current_batch_size, slice it
+            # If it has fewer (shouldn't happen if test_sample_num_np is basis), this is an issue.
+            # For simplicity, we assume KernelExplainer calls with full test_sample_num_np batch or slices of it.
+            # A robust way: ensure fixed_cat_subset has enough samples, or use a single representative categorical vector.
+            # Let's use a single fixed categorical vector from the background set for simplicity and consistency.
+            single_fixed_cat_vector = fixed_cat_for_predict_fn[0:1, :].repeat(current_batch_size, 1)
+
+            with torch.no_grad():
+                logits = model(x_num_torch, single_fixed_cat_vector)  # Original model
+                probs = torch.sigmoid(logits)  # Get probabilities
+            # KernelExplainer expects P(class 1) for binary or P(class_i) for multiclass
+            # For binary, predict_proba usually returns [P(class 0), P(class 1)]
+            # Let's return both columns as KernelExplainer can handle it or we can select later
+            # Or just P(class 1) if that's what previous code used: probs_class1 = probs.cpu().numpy()
+            # For consistency with how SHAP values list is often structured:
+            probs_for_shap = torch.cat((1 - probs, probs), dim=1)  # [P(class 0), P(class 1)]
+            return probs_for_shap.cpu().numpy()
+
+        start_shap_time = time.time()
+        logging.info("Initializing SHAP KernelExplainer...")
+        # Summarize background data for KernelExplainer (e.g., using k-means or just use the sample)
+        # Using shap.kmeans is common for larger background sets, but direct sampling is also okay for smaller ones.
+        # background_summary_for_kernel = shap.kmeans(background_num_for_masker, 10) # Example: 10 centers
+        # For simplicity with small sample_size, using the sample directly as background:
+        if background_num_for_masker.shape[0] > 200:  # Only summarize if very large
+            logging.info(
+                f"Summarizing background data of shape {background_num_for_masker.shape} for KernelExplainer masker using kmeans...")
+            background_masker_data = shap.kmeans(background_num_for_masker, min(50, background_num_for_masker.shape[
+                0]))  # Summarize to 50 centers or less
+        else:
+            background_masker_data = background_num_for_masker
+
+        explainer = shap.KernelExplainer(predict_fn_for_kernel, background_masker_data)
+
+        logging.info(f"Calculating SHAP values for numerical features on {test_sample_num_np.shape[0]} test samples...")
+        # nsamples='auto' or a small number. For large feature counts, KernelExplainer needs many samples.
+        shap_values_output = explainer.shap_values(test_sample_num_np,
+                                                   nsamples='auto')  # nsamples is how many perturbations
+        end_shap_time = time.time()
+        logging.info(f"SHAP values (numerical) calculated in {end_shap_time - start_shap_time:.2f} seconds.")
+
+        # KernelExplainer with predict_fn returning 2 columns (for binary) will give a list of 2 SHAP arrays
+        if isinstance(shap_values_output, list) and len(shap_values_output) == 2:
+            shap_values_num_np = shap_values_output[1]  # For the positive class
+        else:
+            # This might happen if predict_fn_for_kernel only returned P(class 1)
+            logging.warning("KernelExplainer output not a list of 2 arrays. Assuming output is for positive class.")
+            shap_values_num_np = shap_values_output
+
+        # Plot summary for numerical features
+        fig_shap_num, ax_shap_num = plt.subplots()
+        shap.summary_plot(shap_values_num_np, test_sample_num_np, feature_names=feature_names_num, plot_type="dot",
+                          show=False)
+        plt.title("SHAP Summary Plot (FT-Transformer - Numerical Features Only - KernelExplainer)")
+        try:
+            plt.tight_layout()
+        except:
+            logging.warning("Could not apply tight_layout() to SHAP plot.")
+        save_plot_to_gcs(fig_shap_num, gcs_bucket,
+                         f"{gcs_output_prefix}/plots/ft_transformer_shap_summary_numerical_kernel.png")
+
         mean_abs_shap_num = np.mean(np.abs(shap_values_num_np), axis=0)
         feature_importance_num = pd.DataFrame({'feature': feature_names_num, 'mean_abs_shap': mean_abs_shap_num})
         feature_importance_num = feature_importance_num.sort_values('mean_abs_shap', ascending=False)
-        logging.info("Top 10 Numerical features by Mean Absolute SHAP value:\n" + feature_importance_num.head(10).to_string())
-        logging.warning("SHAP values for categorical features were not calculated.")
+        logging.info(
+            "Top 10 Numerical features by Mean Absolute SHAP value (KernelExplainer):\n" + feature_importance_num.head(
+                10).to_string())
+        logging.warning(
+            "SHAP values for categorical features were not calculated with this simplified numerical approach.")
+
         return shap_values_num_np, feature_importance_num.to_dict('records')
+
     except Exception as e:
-        logging.error(f"Failed during simplified SHAP analysis: {e}"); import traceback; logging.error(traceback.format_exc())
+        logging.error(f"Failed during KernelExplainer SHAP analysis: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         return None, None
 
 # --- Main Execution ---
