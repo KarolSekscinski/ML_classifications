@@ -343,7 +343,7 @@ def main(args):
         # The older rtdl versions have defaults for 'activation', 'prenormalization', 'initialization'
         # which are often 'reglu', True, and 'kaiming' respectively.
         # We will rely on those defaults unless you want to add them as command-line arguments.
-        d_out=1,
+        d_out=1
     ).to(device)
     logging.info(f"FT-Transformer Model Architecture:\n{model}")
     logging.info(f"Using {n_num_features} numerical features and {len(cat_cardinalities)} categorical features.")
