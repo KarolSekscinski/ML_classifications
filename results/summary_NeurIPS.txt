@@ -1,0 +1,171 @@
+Found 15 total log file(s), grouped into 4 model type(s).
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: FT-Transformer
+Log File: NeurIPS\results\ft_transformer_run_20250513_210405\logs\ft_transformer_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_ft_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/NeurIPS/results/ft
+  Saved Model Path: gs://licencjat_ml_classification/NeurIPS/results/ft/model/ft_transformer_model_state_dict.pt
+  Training Duration: 447.61 seconds
+  Key Script Arguments:
+    epochs: 3
+    batch_size: 256
+    learning_rate: 0.0001
+    ft_d_token: 192
+    ft_n_blocks: 3
+
+  Test Set Evaluation:
+    Accuracy: 0.9285
+    Precision: 0.0716
+    Recall: 0.4578
+    F1-Score: 0.1238
+    Roc Auc: 0.8416
+    Pr Auc: 0.0822
+    Confusion Matrix:
+      [184695, 13099]
+      [1196, 1010]
+
+  SHAP Analysis Run: True
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: MLP
+Log File: NeurIPS\results\mlp_run_20250512_221847\logs\mlp_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/NeurIPS/results/mlp_run_20250512_221847
+  Saved Model Path: gs://licencjat_ml_classification/NeurIPS/results/mlp_run_20250512_221847/model/mlp_model_state_dict.pt
+  Training Duration: 764.66 seconds
+  Key Script Arguments:
+    epochs: 50
+    batch_size: 512
+    learning_rate: 0.0001
+    mlp_hidden_dims: 256,128,64
+
+  Test Set Evaluation:
+    Accuracy: 0.9393
+    Precision: 0.0800
+    Recall: 0.4288
+    F1-Score: 0.1348
+    Roc Auc: 0.8347
+    Pr Auc: 0.0916
+    Confusion Matrix:
+      [186915, 10879]
+      [1260, 946]
+
+  SHAP Analysis Run: True
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: LinearSVC (Calibrated)
+Log File: NeurIPS\results\svm_run_20250513_175838\logs\linearsvc_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/NeurIPS/results/svm_run_20250513_175838
+  Saved Model Path: gs://licencjat_ml_classification/NeurIPS/results/svm_run_20250513_175838/model/linearsvc_calibrated_model.joblib
+  Training Duration: 23.50 seconds
+  Key Script Arguments:
+    svm_c: 1.0
+
+  Test Set Evaluation:
+    Accuracy: 0.7966
+    Precision: 0.0391
+    Recall: 0.7398
+    F1-Score: 0.0743
+    Roc Auc: 0.8443
+    Pr Auc: 0.0978
+    Confusion Matrix:
+      [157692, 40102]
+      [574, 1632]
+
+  SHAP Analysis Run: True
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: XGBoost
+Log File: NeurIPS\results\xgb_run_20250513_180144\logs\xgboost_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/NeurIPS/results/xgb_run_20250513_180144
+  Saved Model Path: gs://licencjat_ml_classification/NeurIPS/results/xgb_run_20250513_180144/model/xgboost_model.json
+  Training Duration: 70.76 seconds
+  Key Script Arguments:
+    xgb_n_estimators: 500
+
+  Test Set Evaluation:
+    Accuracy: 0.9577
+    Precision: 0.0957
+    Recall: 0.3359
+    F1-Score: 0.1490
+    Roc Auc: 0.8497
+    Pr Auc: 0.0949
+    Confusion Matrix:
+      [190796, 6998]
+      [1465, 741]
+
+  SHAP Analysis Run: True
+  Top SHAP Features:
+                         feature  mean_abs_shap
+               housing_status_BA         0.7826
+               device_os_windows         0.5418
+                          income         0.3759
+    current_address_months_count         0.3248
+           name_email_similarity         0.1965
+            employment_status_CA         0.1878
+                 payment_type_AC         0.1667
+                 payment_type_AA         0.1232
+               bank_months_count         0.1164
+                 device_os_linux         0.0939
+                         month_3         0.0846
+                 device_os_other         0.0827
+                 customer_age_20         0.0825
+               housing_status_BC         0.0686
+           proposed_credit_limit         0.0661
+date_of_birth_distinct_emails_4w         0.0639
+                 customer_age_40         0.0581
+            bank_branch_count_8w         0.0563
+                         month_4         0.0524
+       session_length_in_minutes         0.0482
+              days_since_request         0.0468
+            employment_status_CC         0.0402
+                 customer_age_30         0.0389
+               housing_status_BE         0.0368
+                 payment_type_AB         0.0332
+                 customer_age_50         0.0324
+                         month_2         0.0267
+            employment_status_CB         0.0253
+                         month_1         0.0250
+                 customer_age_60         0.0224
+               housing_status_BB         0.0202
+                 payment_type_AD         0.0178
+               credit_risk_score         0.0154
+                         month_0         0.0113
+                         month_7         0.0113
+             device_os_macintosh         0.0104
+                     velocity_4w         0.0088
+          intended_balcon_amount         0.0079
+                         month_5         0.0068
+       device_distinct_emails_8w         0.0038
+                         month_6         0.0033
+                    zip_count_4w         0.0025
+       prev_address_months_count         0.0010
+               housing_status_BD         0.0006
+                 customer_age_70         0.0006
+            employment_status_CD         0.0005
+                 customer_age_80         0.0003
+                    velocity_24h         0.0002
+                   device_os_x11         0.0000
+                 customer_age_10         0.0000
+            employment_status_CE         0.0000
+                     velocity_6h         0.0000
+            employment_status_CF         0.0000
+                 customer_age_90         0.0000
+                 payment_type_AE         0.0000
+            employment_status_CG         0.0000
+               housing_status_BF         0.0000
+                 source_INTERNET         0.0000
+                  source_TELEAPP         0.0000
+               housing_status_BG         0.0000
+================================================================================
+

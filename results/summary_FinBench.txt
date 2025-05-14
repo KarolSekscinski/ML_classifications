@@ -1,0 +1,132 @@
+Found 14 total log file(s), grouped into 4 model type(s).
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: FinBench_FTTransformer
+Log File: FinBench\results\ft_transformer_run_20250514_180706\logs\finbench_fttransformer_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_180706
+  Saved Model Path: gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_180706/model/finbench_fttransformer_best_model.pt
+  Training Duration: 82.53 seconds
+  Key Script Arguments:
+    epochs: 30
+    batch_size: 256
+    learning_rate: 0.0001
+    early_stopping_patience: 10
+    ft_d_token: 192
+    ft_n_blocks: 3
+
+  Test Set Evaluation (with Best Model):
+    Accuracy: 0.9330
+    Precision: 0.1304
+    Recall: 0.0192
+    F1-Score: 0.0335
+    Roc Auc: 0.6846
+    Pr Auc: 0.1159
+    Confusion Matrix:
+      [2405, 20]
+      [153, 3]
+
+  Best Validation Epoch Metrics (during training):
+    Accuracy: 0.9237
+    Precision: 0.0000
+    Recall: 0.0000
+    F1-Score: 0.0000
+    Roc Auc: 0.7038
+    Pr Auc: 0.1737
+    Best Validation Loss: 0.2526
+    Achieved at Epoch: 7
+
+  SHAP Analysis Run: False
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: FinBench_MLP
+Log File: FinBench\results\mlp_run_20250514_163726\logs\finbench_mlp_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/FinBench/results/mlp_run_20250514_163726
+  Saved Model Path: gs://licencjat_ml_classification/FinBench/results/mlp_run_20250514_163726/model/finbench_mlp_best_model.pt
+  Training Duration: 10.66 seconds
+  Key Script Arguments:
+    epochs: 50
+    batch_size: 512
+    learning_rate: 0.0001
+    early_stopping_patience: 10
+    mlp_hidden_dims: 256,128,64
+
+  Test Set Evaluation (with Best Model):
+    Accuracy: 0.8783
+    Precision: 0.1165
+    Recall: 0.1538
+    F1-Score: 0.1326
+    Roc Auc: 0.6639
+    Pr Auc: 0.1084
+    Confusion Matrix:
+      [2243, 182]
+      [132, 24]
+
+  Best Validation Epoch Metrics (during training):
+    Accuracy: 0.8905
+    Precision: 0.2381
+    Recall: 0.2273
+    F1-Score: 0.2326
+    Roc Auc: 0.6599
+    Pr Auc: 0.1590
+    Best Validation Loss: 0.3223
+    Achieved at Epoch: 45
+
+  SHAP Analysis Run: True
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: FinBench_SVC
+Log File: FinBench\results\svm_run_20250514_162745\logs\finbench_svc_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/FinBench/results/svm_run_20250514_162745
+  Saved Model Path: gs://licencjat_ml_classification/FinBench/results/svm_run_20250514_162745/model/finbench_svc_model.joblib
+  Training Duration: 40.72 seconds
+  Key Script Arguments:
+    svm_c: 1.0
+    svm_kernel: rbf
+
+  Test Set Evaluation:
+    Accuracy: 0.8648
+    Precision: 0.1303
+    Recall: 0.2179
+    F1-Score: 0.1631
+    Roc Auc: 0.6718
+    Pr Auc: 0.1175
+    Confusion Matrix:
+      [2198, 227]
+      [122, 34]
+
+  SHAP Analysis Run: False
+================================================================================
+
+================================================================================
+BEST MODEL SUMMARY for Model Type: FinBench_XGBoost
+Log File: FinBench\results\xgb_run_20250514_162845\logs\finbench_xgboost_training_log.json
+--------------------------------------------------------------------------------
+  Metadata Source: gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json
+  GCS Output Prefix: gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_162845
+  Saved Model Path: gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_162845/model/finbench_xgboost_model.json
+  Training Duration: 0.65 seconds
+  Key Script Arguments:
+    xgb_n_estimators: 500
+
+  Test Set Evaluation:
+    Accuracy: 0.9384
+    Precision: 0.0000
+    Recall: 0.0000
+    F1-Score: 0.0000
+    Roc Auc: 0.6912
+    Pr Auc: 0.1199
+    Confusion Matrix:
+      [2422, 3]
+      [156, 0]
+
+  SHAP Analysis Run: False
+================================================================================
+
