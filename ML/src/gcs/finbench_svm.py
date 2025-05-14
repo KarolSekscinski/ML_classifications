@@ -367,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument("--svm-verbose", action='store_true', help="Enable verbose output for SVC training.")
     # SHAP arguments
     parser.add_argument("--run-shap", action='store_true', help="Run SHAP analysis (can be very slow).")
-    parser.add_argument("--shap-sample-size", type=int, default=100,
+    parser.add_argument("--shap-sample-size", type=int, default=10,
                         help="Number of samples for SHAP background and explanation.")
     args = parser.parse_args()
     main(args)
