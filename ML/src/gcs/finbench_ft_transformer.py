@@ -1,4 +1,3 @@
-# ft_transformer_finbench_cf2.py
 import argparse
 import logging
 import pandas as pd
@@ -18,6 +17,7 @@ from io import BytesIO, StringIO
 import json
 import os
 import copy
+import traceback  # For detailed error logging
 
 # Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
 import gcs_utils
@@ -58,13 +58,13 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=N
 
         logging.info(f"Data loaded from gs://{gcs_bucket}/{blob_name}. Shape: {df.shape}")
         if expected_columns_list is not None and not df.empty:
-            # We expect the preprocessor to have saved files with correct columns.
-            # If column names were not saved or differ, this might be an issue.
-            # For now, we assume the order and number of columns are correct as per preprocessing.
-            if len(df.columns) != len(expected_columns_list) and expected_columns_list:
+            if list(df.columns) != expected_columns_list and len(df.columns) == len(expected_columns_list):
                 logging.warning(
-                    f"Column count mismatch for {blob_name}. Loaded: {len(df.columns)}, Expected: {len(expected_columns_list)}. This might cause issues if names are critical downstream.")
-            # We won't rename here, assuming the preprocessor saved them as needed.
+                    f"Column name mismatch for {blob_name} but counts match. Expected: {expected_columns_list}, Got: {list(df.columns)}. Assuming order is correct.")
+                df.columns = expected_columns_list  # Enforce expected names if count matches
+            elif len(df.columns) != len(expected_columns_list) and expected_columns_list:
+                logging.warning(
+                    f"Column count mismatch for {blob_name}. Loaded: {len(df.columns)}, Expected: {len(expected_columns_list)}.")
         elif expected_columns_list and df.empty and len(expected_columns_list) > 0:
             logging.warning(f"Loaded empty DataFrame from {blob_name} but expected columns: {expected_columns_list}")
         return df
@@ -85,15 +85,30 @@ def save_plot_to_gcs(fig, gcs_bucket, gcs_blob_name):
         logging.error(f"ERROR saving plot to GCS ({gcs_blob_name}): {e}"); plt.close(fig)
 
 
-def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
-    logging.info(f"Saving model state_dict to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+def save_model_to_gcs(model_state_dict_or_model, gcs_bucket, gcs_blob_name):
+    """Saves a PyTorch model state dictionary or entire model to GCS."""
+    logging.info(f"Saving model/state_dict to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
+    buf = None  # Initialize buf outside try
     try:
-        with BytesIO() as buf:
-            torch.save(model_state_dict, buf); buf.seek(0)
-        gcs_utils.upload_bytes_to_gcs(gcs_bucket, buf.read(), gcs_blob_name, content_type='application/octet-stream')
-        logging.info(f"Model state_dict saved to gs://{gcs_bucket}/{gcs_blob_name}")
+        buf = BytesIO()
+        torch.save(model_state_dict_or_model, buf)
+        # getvalue() returns the entire contents of the buffer as bytes.
+        # This is generally preferred over seek(0) + read() for getting all bytes
+        # as it doesn't depend on the current buffer position.
+        model_bytes = buf.getvalue()
+
+        # model_bytes is now a distinct bytes object in memory.
+        gcs_utils.upload_bytes_to_gcs(gcs_bucket, model_bytes, gcs_blob_name, content_type='application/octet-stream')
+        logging.info(f"Model/state_dict successfully saved to gs://{gcs_bucket}/{gcs_blob_name}")
+
     except Exception as e:
-        logging.error(f"ERROR saving model state_dict to GCS ({gcs_blob_name}): {e}")
+        logging.error(f"ERROR saving model/state_dict to GCS ({gcs_blob_name}): {e}")
+        logging.error(traceback.format_exc())  # Log the full traceback
+        # Depending on desired behavior, you might want to re-raise the exception
+        # raise
+    finally:
+        if buf is not None:
+            buf.close()  # Ensure buffer is closed in all cases
 
 
 class TabularDataset(Dataset):
@@ -108,10 +123,15 @@ class TabularDataset(Dataset):
             f"Mismatch samples: X_num ({X_num_np.shape[0]}) vs Y ({n_samples_y})")
         if self.has_cat and X_cat_np.shape[0] != n_samples_y: raise ValueError(
             f"Mismatch samples: X_cat ({X_cat_np.shape[0]}) vs Y ({n_samples_y})")
-        if not (X_num_np.shape[0] == (X_cat_np.shape[0] if self.has_cat else X_num_np.shape[0]) == Y_np.shape[0]):
-            if not (n_samples_y == 0 and (not self.has_num or X_num_np.shape[0] == 0) and (
-                    not self.has_cat or X_cat_np.shape[0] == 0)):  # Allow all empty
-                raise ValueError("Sample count mismatch between X_num, X_cat, and Y, or one is unexpectedly empty.")
+        # Check if all parts have the same number of samples, or are all empty
+        num_samples_x_num = X_num_np.shape[0] if self.has_num else n_samples_y  # Use n_samples_y if no num features
+        num_samples_x_cat = X_cat_np.shape[0] if self.has_cat else n_samples_y  # Use n_samples_y if no cat features
+
+        if not (num_samples_x_num == num_samples_x_cat == n_samples_y):
+            # Allow case where all are zero length (empty dataset)
+            if not (num_samples_x_num == 0 and num_samples_x_cat == 0 and n_samples_y == 0):
+                raise ValueError(
+                    f"Sample count mismatch. Y: {n_samples_y}, X_num: {num_samples_x_num if self.has_num else 'N/A'}, X_cat: {num_samples_x_cat if self.has_cat else 'N/A'}")
 
     def __len__(self):
         return len(self.Y)
@@ -163,18 +183,13 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
 
             # --- SAFEGUARD & DEBUG BLOCK for x_cat ---
             if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 and actual_cat_cardinalities_for_debug is not None:
-                # Create a mutable copy for potential in-place modification
                 x_cat_dev_cleaned = x_cat_dev.clone()
                 for i in range(x_cat_dev_cleaned.shape[1]):
                     col_data = x_cat_dev_cleaned[:, i]
                     cardinality = actual_cat_cardinalities_for_debug[i]
                     max_valid_index = cardinality - 1
-
-                    # Log original min/max for this batch column
-                    original_col_min = col_data.min().item()
+                    original_col_min = col_data.min().item();
                     original_col_max = col_data.max().item()
-
-                    # Safeguard: Map any negative indices to 0
                     negative_mask = col_data < 0
                     if negative_mask.any():
                         feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
@@ -182,8 +197,6 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
                         logging.warning(
                             f"SAFEGUARD: Negative indices found in {dataset_name} Batch {batch_idx}, Cat Col {i} ('{feat_name}'). Min: {original_col_min}. Mapping to 0.")
                         x_cat_dev_cleaned[:, i][negative_mask] = 0
-
-                    # Safeguard: Clip to max_valid_index
                     too_large_mask = x_cat_dev_cleaned[:, i] > max_valid_index
                     if too_large_mask.any():
                         feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
@@ -191,10 +204,7 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
                         logging.warning(
                             f"SAFEGUARD: Indices >= cardinality found in {dataset_name} Batch {batch_idx}, Cat Col {i} ('{feat_name}'). Max: {original_col_max}, Cardinality: {cardinality}. Clipping to {max_valid_index}.")
                         x_cat_dev_cleaned[:, i][too_large_mask] = max_valid_index
-
-                current_x_cat = x_cat_dev_cleaned  # Use the cleaned tensor
-
-                # Debug log (can be made less frequent if too verbose)
+                current_x_cat = x_cat_dev_cleaned
                 if dataset_name == "Test Set" or (dataset_name == "Validation (Epoch End)" and batch_idx < 1):
                     logging.info(
                         f"DEBUG EVAL: {dataset_name} Batch {batch_idx}, x_cat (cleaned) on device {current_x_cat.device}, shape: {current_x_cat.shape}")
@@ -211,7 +221,7 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
                             f"    FATAL DEBUG EVAL (POST-CLEAN): Negative index {col_min_cleaned} in x_cat col {i} ('{feat_name}')!")
                         if col_max_cleaned >= cardinality: logging.error(
                             f"    FATAL DEBUG EVAL (POST-CLEAN): Index {col_max_cleaned} >= Cardinality {cardinality} in x_cat col {i} ('{feat_name}')!")
-            else:  # No categorical features or no cardinalities for debug
+            else:
                 current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
             # --- END SAFEGUARD & DEBUG BLOCK ---
 
@@ -281,7 +291,6 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
                                     numerical_feature_names, fixed_cat_background_tensor,
                                     device, gcs_bucket, gcs_output_prefix,
                                     background_sample_size=50, explain_sample_size=10):
-    # (Identical to previous version with KernelExplainer for numerical features)
     logging.warning(f"--- SHAP Analysis ({MODEL_NAME} - KernelExplainer on Numerical Features) ---")
     if not numerical_feature_names: logging.warning("No numerical features. Skipping SHAP."); return None, None
     try:
@@ -578,7 +587,12 @@ def main(args):
                                  GCS_OUTPUT_PREFIX)
 
     best_val_metrics_dict = {}
-    if best_epoch > 0:
+    if best_epoch > 0 and best_model_state is not None:  # Ensure best model was actually found and loaded
+        # Re-evaluate the best model on the validation set to get its full metrics
+        # (as only loss was used for early stopping, other metrics might not be from the 'best' state)
+        # First, ensure the best model state is loaded if it's not already
+        model.load_state_dict(best_model_state)
+        logging.info("Evaluating best model state on Validation set for final reporting...")
         _, best_val_metrics_dict, _, _, _ = evaluate_model_ft(
             model, val_loader, criterion, device, dataset_name="Best Validation Epoch",
             actual_cat_cardinalities_for_debug=current_cat_cardinalities,
@@ -638,7 +652,8 @@ def main(args):
         "training_total_duration_seconds": total_train_time,
         "epoch_training_losses": all_epoch_train_losses, "epoch_validation_losses": all_epoch_val_losses,
         "epoch_validation_aucpr": all_epoch_val_aucpr, "best_epoch_for_early_stopping": best_epoch,
-        "best_validation_loss": best_val_loss, "best_epoch_validation_metrics": best_val_metrics_dict,
+        "best_validation_loss": best_val_loss if best_epoch > 0 else None,
+        "best_epoch_validation_metrics": best_val_metrics_dict,
         "test_set_evaluation_with_best_model": test_metrics,
         "shap_analysis_run": args.run_shap and bool(num_feat_names),
         "shap_top_numerical_features": shap_feature_importance,
