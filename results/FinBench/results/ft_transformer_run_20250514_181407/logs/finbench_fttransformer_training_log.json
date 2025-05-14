@@ -1,0 +1,150 @@
+{
+    "model_type": "FinBench_FTTransformer",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+        "gcs_output_prefix": "FinBench/results/ft_transformer_run_20250514_181407",
+        "epochs": 30,
+        "batch_size": 256,
+        "learning_rate": 0.0001,
+        "weight_decay": 1e-05,
+        "num_workers": 2,
+        "early_stopping_patience": 10,
+        "ft_d_token": 192,
+        "ft_n_blocks": 3,
+        "ft_attention_dropout": 0.2,
+        "ft_ffn_dropout": 0.1,
+        "ft_residual_dropout": 0.0,
+        "ft_ffn_factor": 1.3333333333333333,
+        "run_shap": false,
+        "shap_background_sample_size": 50,
+        "shap_explain_sample_size": 10
+    },
+    "device_used": "cuda",
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+    "n_numerical_features": 104,
+    "categorical_cardinalities": [
+        2,
+        2,
+        1,
+        2,
+        7,
+        3,
+        5,
+        5,
+        6,
+        18,
+        7,
+        53,
+        4,
+        3,
+        7,
+        2
+    ],
+    "training_total_duration_seconds": 93.24012804031372,
+    "epoch_training_losses": [
+        0.6638963997364045,
+        0.48897574916481973,
+        0.3812441296875477,
+        0.3204695448279381,
+        0.2827370040118694,
+        0.2725138355046511,
+        0.2521038390696049,
+        0.22068565003573895,
+        0.2222878247499466,
+        0.2157820723950863,
+        0.19622184187173844,
+        0.19332861602306367,
+        0.18522850424051285,
+        0.17525112591683864,
+        0.17847535535693168,
+        0.17751663587987423,
+        0.17766512073576451,
+        0.17766041941940786,
+        0.16374194882810117
+    ],
+    "epoch_validation_losses": [
+        0.6127535899480184,
+        0.47680481274922687,
+        0.4081006944179535,
+        0.3572811285654704,
+        0.2717414100964864,
+        0.2574435919523239,
+        0.32668078939119977,
+        0.28914820154507953,
+        0.2544891933600108,
+        0.269969974954923,
+        0.2646500567595164,
+        0.2666233281294505,
+        0.27566973368326825,
+        0.27485114832719165,
+        0.27051419019699097,
+        0.27012646198272705,
+        0.2752064913511276,
+        0.2812882413466771,
+        0.2807874530553818
+    ],
+    "epoch_validation_aucpr": [
+        0.21094606816768646,
+        0.1836564838886261,
+        0.15811914205551147,
+        0.14076992869377136,
+        0.13572922348976135,
+        0.15386125445365906,
+        0.16960778832435608,
+        0.16055776178836823,
+        0.15898504853248596,
+        0.16067717969417572,
+        0.14724287390708923,
+        0.16257479786872864,
+        0.15508481860160828,
+        0.15595851838588715,
+        0.16122175753116608,
+        0.1470920741558075,
+        0.14165252447128296,
+        0.14540719985961914,
+        0.14070814847946167
+    ],
+    "best_epoch_for_early_stopping": 9,
+    "best_validation_loss": 0.2544891933600108,
+    "best_epoch_validation_metrics": {
+        "accuracy": 0.9253731369972229,
+        "f1": 0.0,
+        "pr_auc": 0.15898504853248596,
+        "precision": 0.0,
+        "recall": 0.0,
+        "roc_auc": 0.6926736235618591,
+        "confusion_matrix": [
+            [
+                558,
+                1
+            ],
+            [
+                44,
+                0
+            ]
+        ]
+    },
+    "test_set_evaluation_with_best_model": {
+        "accuracy": 0.9387834072113037,
+        "f1": 0.0,
+        "pr_auc": 0.10895337164402008,
+        "precision": 0.0,
+        "recall": 0.0,
+        "roc_auc": 0.6695427298545837,
+        "confusion_matrix": [
+            [
+                2423,
+                2
+            ],
+            [
+                156,
+                0
+            ]
+        ]
+    },
+    "shap_analysis_run": false,
+    "shap_top_numerical_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_181407",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_181407/model/finbench_fttransformer_best_model.pt"
+}

@@ -1,0 +1,102 @@
+{
+    "model_type": "FinBench_FTTransformer",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+        "gcs_output_prefix": "FinBench/results/ft",
+        "epochs": 3,
+        "batch_size": 256,
+        "learning_rate": 0.0001,
+        "weight_decay": 1e-05,
+        "num_workers": 2,
+        "early_stopping_patience": 10,
+        "ft_d_token": 192,
+        "ft_n_blocks": 3,
+        "ft_attention_dropout": 0.2,
+        "ft_ffn_dropout": 0.1,
+        "ft_residual_dropout": 0.0,
+        "ft_ffn_factor": 1.3333333333333333,
+        "run_shap": false,
+        "shap_background_sample_size": 50,
+        "shap_explain_sample_size": 10
+    },
+    "device_used": "cuda",
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+    "n_numerical_features": 104,
+    "categorical_cardinalities": [
+        2,
+        2,
+        1,
+        2,
+        7,
+        3,
+        5,
+        5,
+        6,
+        18,
+        7,
+        53,
+        4,
+        3,
+        7,
+        2
+    ],
+    "training_total_duration_seconds": 14.302363395690918,
+    "epoch_training_losses": [
+        0.6578660041093827,
+        0.4614242516458035,
+        0.3838902570307255
+    ],
+    "epoch_validation_losses": [
+        0.7626243432362875,
+        0.5922205646832784,
+        0.3057195544242859
+    ],
+    "epoch_validation_aucpr": [
+        0.19070227444171906,
+        0.1553311049938202,
+        0.14770551025867462
+    ],
+    "best_epoch_for_early_stopping": 3,
+    "best_validation_loss": 0.3057195544242859,
+    "best_epoch_validation_metrics": {
+        "accuracy": 0.8888888955116272,
+        "f1": 0.17283950746059418,
+        "pr_auc": 0.14770551025867462,
+        "precision": 0.18918919563293457,
+        "recall": 0.15909090638160706,
+        "roc_auc": 0.6703935861587524,
+        "confusion_matrix": [
+            [
+                529,
+                30
+            ],
+            [
+                37,
+                7
+            ]
+        ]
+    },
+    "test_set_evaluation_with_best_model": {
+        "accuracy": 0.8961642980575562,
+        "f1": 0.08843537420034409,
+        "pr_auc": 0.10501673817634583,
+        "precision": 0.09420289844274521,
+        "recall": 0.0833333358168602,
+        "roc_auc": 0.6805551052093506,
+        "confusion_matrix": [
+            [
+                2300,
+                125
+            ],
+            [
+                143,
+                13
+            ]
+        ]
+    },
+    "shap_analysis_run": false,
+    "shap_top_numerical_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/ft",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/ft/model/finbench_fttransformer_best_model.pt"
+}

@@ -1,0 +1,56 @@
+{
+    "model_type": "FinBench_SVC",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+        "gcs_output_prefix": "FinBench/results/svm_run_20250514_164240",
+        "svm_c": 1.0,
+        "svm_kernel": "rbf",
+        "svm_gamma": "scale",
+        "svm_verbose": false,
+        "run_shap": true,
+        "shap_sample_size": 10
+    },
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+    "training_duration_seconds": 75.95523619651794,
+    "validation_set_evaluation": {
+        "accuracy": 0.8689883913764511,
+        "precision": 0.19298245614035087,
+        "recall": 0.25,
+        "f1_score": 0.21782178217821782,
+        "roc_auc": 0.6554521060335013,
+        "pr_auc": 0.20048614485893654,
+        "confusion_matrix": [
+            [
+                513,
+                46
+            ],
+            [
+                33,
+                11
+            ]
+        ]
+    },
+    "test_set_evaluation": {
+        "accuracy": 0.8647810925997675,
+        "precision": 0.13026819923371646,
+        "recall": 0.21794871794871795,
+        "f1_score": 0.1630695443645084,
+        "roc_auc": 0.6718279143536876,
+        "pr_auc": 0.1175059042636992,
+        "confusion_matrix": [
+            [
+                2198,
+                227
+            ],
+            [
+                122,
+                34
+            ]
+        ]
+    },
+    "shap_analysis_run": true,
+    "shap_top_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/svm_run_20250514_164240",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/svm_run_20250514_164240/model/finbench_svc_model.joblib"
+}

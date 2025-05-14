@@ -1,0 +1,144 @@
+{
+    "model_type": "FinBench_FTTransformer",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+        "gcs_output_prefix": "FinBench/results/ft_transformer_run_20250514_180706",
+        "epochs": 30,
+        "batch_size": 256,
+        "learning_rate": 0.0001,
+        "weight_decay": 1e-05,
+        "num_workers": 2,
+        "early_stopping_patience": 10,
+        "ft_d_token": 192,
+        "ft_n_blocks": 3,
+        "ft_attention_dropout": 0.2,
+        "ft_ffn_dropout": 0.1,
+        "ft_residual_dropout": 0.0,
+        "ft_ffn_factor": 1.3333333333333333,
+        "run_shap": false,
+        "shap_background_sample_size": 50,
+        "shap_explain_sample_size": 10
+    },
+    "device_used": "cuda",
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ft_metadata.json",
+    "n_numerical_features": 104,
+    "categorical_cardinalities": [
+        2,
+        2,
+        1,
+        2,
+        7,
+        3,
+        5,
+        5,
+        6,
+        18,
+        7,
+        53,
+        4,
+        3,
+        7,
+        2
+    ],
+    "training_total_duration_seconds": 82.52676033973694,
+    "epoch_training_losses": [
+        0.6504914730787277,
+        0.44467466697096825,
+        0.36478132046759126,
+        0.3244076207280159,
+        0.28516659140586853,
+        0.25962178260087965,
+        0.2468665823340416,
+        0.22818876393139362,
+        0.22396722473204136,
+        0.21217800304293633,
+        0.20780750811100007,
+        0.1982685312628746,
+        0.20280733965337278,
+        0.1884481217712164,
+        0.1823137652128935,
+        0.1800344053655863,
+        0.1824703797698021
+    ],
+    "epoch_validation_losses": [
+        0.4191060960292816,
+        0.7253733476003011,
+        0.3527863323688507,
+        0.3157865305741628,
+        0.2936493158340454,
+        0.42020894090334576,
+        0.25259485344092053,
+        0.2623709738254547,
+        0.25596314668655396,
+        0.26438863078753155,
+        0.2763003706932068,
+        0.26503721872965497,
+        0.2794871926307678,
+        0.29417166113853455,
+        0.25626660386721295,
+        0.2738270163536072,
+        0.2945970296859741
+    ],
+    "epoch_validation_aucpr": [
+        0.17724880576133728,
+        0.15136399865150452,
+        0.15502524375915527,
+        0.1488858014345169,
+        0.15866796672344208,
+        0.14183728396892548,
+        0.17366841435432434,
+        0.15334226191043854,
+        0.1587328463792801,
+        0.14257249236106873,
+        0.1349354386329651,
+        0.14299938082695007,
+        0.16018733382225037,
+        0.15280809998512268,
+        0.15797391533851624,
+        0.14660435914993286,
+        0.1334691196680069
+    ],
+    "best_epoch_for_early_stopping": 7,
+    "best_validation_loss": 0.25259485344092053,
+    "best_epoch_validation_metrics": {
+        "accuracy": 0.9237147569656372,
+        "f1": 0.0,
+        "pr_auc": 0.17366841435432434,
+        "precision": 0.0,
+        "recall": 0.0,
+        "roc_auc": 0.7038136124610901,
+        "confusion_matrix": [
+            [
+                557,
+                2
+            ],
+            [
+                44,
+                0
+            ]
+        ]
+    },
+    "test_set_evaluation_with_best_model": {
+        "accuracy": 0.932971715927124,
+        "f1": 0.03351955488324165,
+        "pr_auc": 0.11593721807003021,
+        "precision": 0.1304347813129425,
+        "recall": 0.01923076994717121,
+        "roc_auc": 0.6846153736114502,
+        "confusion_matrix": [
+            [
+                2405,
+                20
+            ],
+            [
+                153,
+                3
+            ]
+        ]
+    },
+    "shap_analysis_run": false,
+    "shap_top_numerical_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_180706",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/ft_transformer_run_20250514_180706/model/finbench_fttransformer_best_model.pt"
+}

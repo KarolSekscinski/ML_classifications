@@ -1,0 +1,283 @@
+{
+    "model_type": "XGBoost",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json",
+        "gcs_output_prefix": "NeurIPS/results/xgb_run_20250513_185121",
+        "xgb_n_estimators": 500,
+        "xgb_learning_rate": 0.05,
+        "xgb_max_depth": 5,
+        "xgb_subsample": 0.8,
+        "xgb_colsample_bytree": 0.8,
+        "xgb_gamma": 0.1,
+        "xgb_early_stopping_rounds": 20,
+        "run_shap": true
+    },
+    "metadata_source": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json",
+    "training_duration_seconds": 69.52422189712524,
+    "best_iteration": 134,
+    "best_eval_score_aucpr": 0.09444855886614946,
+    "evaluation_metrics": {
+        "accuracy": 0.957685,
+        "precision": 0.09574880475513632,
+        "recall": 0.3359020852221215,
+        "f1_score": 0.14901960784313725,
+        "roc_auc": 0.8497474869936891,
+        "pr_auc": 0.09485205714407459,
+        "confusion_matrix": [
+            [
+                190796,
+                6998
+            ],
+            [
+                1465,
+                741
+            ]
+        ]
+    },
+    "shap_analysis_run": true,
+    "shap_top_features": [
+        {
+            "feature": "housing_status_BA",
+            "mean_abs_shap": 0.7826030254364014
+        },
+        {
+            "feature": "device_os_windows",
+            "mean_abs_shap": 0.5417736172676086
+        },
+        {
+            "feature": "income",
+            "mean_abs_shap": 0.37587472796440125
+        },
+        {
+            "feature": "current_address_months_count",
+            "mean_abs_shap": 0.3247554302215576
+        },
+        {
+            "feature": "name_email_similarity",
+            "mean_abs_shap": 0.19651564955711365
+        },
+        {
+            "feature": "employment_status_CA",
+            "mean_abs_shap": 0.18776197731494904
+        },
+        {
+            "feature": "payment_type_AC",
+            "mean_abs_shap": 0.16665267944335938
+        },
+        {
+            "feature": "payment_type_AA",
+            "mean_abs_shap": 0.12324528396129608
+        },
+        {
+            "feature": "bank_months_count",
+            "mean_abs_shap": 0.11644356697797775
+        },
+        {
+            "feature": "device_os_linux",
+            "mean_abs_shap": 0.09386499971151352
+        },
+        {
+            "feature": "month_3",
+            "mean_abs_shap": 0.0846145898103714
+        },
+        {
+            "feature": "device_os_other",
+            "mean_abs_shap": 0.08269013464450836
+        },
+        {
+            "feature": "customer_age_20",
+            "mean_abs_shap": 0.0824805274605751
+        },
+        {
+            "feature": "housing_status_BC",
+            "mean_abs_shap": 0.06858021020889282
+        },
+        {
+            "feature": "proposed_credit_limit",
+            "mean_abs_shap": 0.06611913442611694
+        },
+        {
+            "feature": "date_of_birth_distinct_emails_4w",
+            "mean_abs_shap": 0.06391417235136032
+        },
+        {
+            "feature": "customer_age_40",
+            "mean_abs_shap": 0.058062728494405746
+        },
+        {
+            "feature": "bank_branch_count_8w",
+            "mean_abs_shap": 0.05634423345327377
+        },
+        {
+            "feature": "month_4",
+            "mean_abs_shap": 0.05238848179578781
+        },
+        {
+            "feature": "session_length_in_minutes",
+            "mean_abs_shap": 0.04817644879221916
+        },
+        {
+            "feature": "days_since_request",
+            "mean_abs_shap": 0.04683350771665573
+        },
+        {
+            "feature": "employment_status_CC",
+            "mean_abs_shap": 0.04020168259739876
+        },
+        {
+            "feature": "customer_age_30",
+            "mean_abs_shap": 0.03887791931629181
+        },
+        {
+            "feature": "housing_status_BE",
+            "mean_abs_shap": 0.03681638464331627
+        },
+        {
+            "feature": "payment_type_AB",
+            "mean_abs_shap": 0.03318910300731659
+        },
+        {
+            "feature": "customer_age_50",
+            "mean_abs_shap": 0.03237094730138779
+        },
+        {
+            "feature": "month_2",
+            "mean_abs_shap": 0.02673058770596981
+        },
+        {
+            "feature": "employment_status_CB",
+            "mean_abs_shap": 0.025317128747701645
+        },
+        {
+            "feature": "month_1",
+            "mean_abs_shap": 0.02503012865781784
+        },
+        {
+            "feature": "customer_age_60",
+            "mean_abs_shap": 0.022445043548941612
+        },
+        {
+            "feature": "housing_status_BB",
+            "mean_abs_shap": 0.020202159881591797
+        },
+        {
+            "feature": "payment_type_AD",
+            "mean_abs_shap": 0.017841320484876633
+        },
+        {
+            "feature": "credit_risk_score",
+            "mean_abs_shap": 0.015406559221446514
+        },
+        {
+            "feature": "month_0",
+            "mean_abs_shap": 0.011288325302302837
+        },
+        {
+            "feature": "month_7",
+            "mean_abs_shap": 0.011264688335359097
+        },
+        {
+            "feature": "device_os_macintosh",
+            "mean_abs_shap": 0.010427099652588367
+        },
+        {
+            "feature": "velocity_4w",
+            "mean_abs_shap": 0.008783559314906597
+        },
+        {
+            "feature": "intended_balcon_amount",
+            "mean_abs_shap": 0.007932424545288086
+        },
+        {
+            "feature": "month_5",
+            "mean_abs_shap": 0.006801044102758169
+        },
+        {
+            "feature": "device_distinct_emails_8w",
+            "mean_abs_shap": 0.0037561035715043545
+        },
+        {
+            "feature": "month_6",
+            "mean_abs_shap": 0.0033453793730586767
+        },
+        {
+            "feature": "zip_count_4w",
+            "mean_abs_shap": 0.002489286009222269
+        },
+        {
+            "feature": "prev_address_months_count",
+            "mean_abs_shap": 0.0010337929707020521
+        },
+        {
+            "feature": "housing_status_BD",
+            "mean_abs_shap": 0.0006039231666363776
+        },
+        {
+            "feature": "customer_age_70",
+            "mean_abs_shap": 0.0005823811516165733
+        },
+        {
+            "feature": "employment_status_CD",
+            "mean_abs_shap": 0.0005061698029749095
+        },
+        {
+            "feature": "customer_age_80",
+            "mean_abs_shap": 0.0003280854143667966
+        },
+        {
+            "feature": "velocity_24h",
+            "mean_abs_shap": 0.00022877876472193748
+        },
+        {
+            "feature": "device_os_x11",
+            "mean_abs_shap": 1.1252809599682223e-05
+        },
+        {
+            "feature": "customer_age_10",
+            "mean_abs_shap": 1.046396300807828e-05
+        },
+        {
+            "feature": "employment_status_CE",
+            "mean_abs_shap": 8.257830813818146e-06
+        },
+        {
+            "feature": "velocity_6h",
+            "mean_abs_shap": 7.96816766523989e-06
+        },
+        {
+            "feature": "employment_status_CF",
+            "mean_abs_shap": 5.9861863519472536e-06
+        },
+        {
+            "feature": "customer_age_90",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "payment_type_AE",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "employment_status_CG",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_status_BF",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "source_INTERNET",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "source_TELEAPP",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_status_BG",
+            "mean_abs_shap": 0.0
+        }
+    ],
+    "output_gcs_prefix": "gs://licencjat_ml_classification/NeurIPS/results/xgb_run_20250513_185121",
+    "saved_model_path": "gs://licencjat_ml_classification/NeurIPS/results/xgb_run_20250513_185121/model/xgboost_model.json"
+}

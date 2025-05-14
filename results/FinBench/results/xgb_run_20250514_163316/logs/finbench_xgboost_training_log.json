@@ -1,0 +1,62 @@
+{
+    "model_type": "FinBench_XGBoost",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+        "gcs_output_prefix": "FinBench/results/xgb_run_20250514_163316",
+        "xgb_n_estimators": 500,
+        "xgb_learning_rate": 0.05,
+        "xgb_max_depth": 5,
+        "xgb_subsample": 0.8,
+        "xgb_colsample_bytree": 0.8,
+        "xgb_gamma": 0.1,
+        "xgb_early_stopping_rounds": 20,
+        "xgb_eval_metric": "aucpr",
+        "xgb_verbose": 100,
+        "run_shap": false
+    },
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+    "training_duration_seconds": 0.6477899551391602,
+    "best_iteration": 54,
+    "best_eval_score": 0.14288347166464577,
+    "validation_set_evaluation": {
+        "accuracy": 0.9270315091210614,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "roc_auc": 0.6973898194828427,
+        "pr_auc": 0.14761968901373135,
+        "confusion_matrix": [
+            [
+                559,
+                0
+            ],
+            [
+                44,
+                0
+            ]
+        ]
+    },
+    "test_set_evaluation": {
+        "accuracy": 0.9383959705540488,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "roc_auc": 0.6912159661644198,
+        "pr_auc": 0.11989344599255437,
+        "confusion_matrix": [
+            [
+                2422,
+                3
+            ],
+            [
+                156,
+                0
+            ]
+        ]
+    },
+    "shap_analysis_run": false,
+    "shap_top_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_163316",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_163316/model/finbench_xgboost_model.json"
+}

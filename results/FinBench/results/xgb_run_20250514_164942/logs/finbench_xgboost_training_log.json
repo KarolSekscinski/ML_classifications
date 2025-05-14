@@ -1,0 +1,979 @@
+{
+    "model_type": "FinBench_XGBoost",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+        "gcs_output_prefix": "FinBench/results/xgb_run_20250514_164942",
+        "xgb_n_estimators": 500,
+        "xgb_learning_rate": 0.05,
+        "xgb_max_depth": 5,
+        "xgb_subsample": 0.8,
+        "xgb_colsample_bytree": 0.8,
+        "xgb_gamma": 0.1,
+        "xgb_early_stopping_rounds": 20,
+        "xgb_eval_metric": "aucpr",
+        "xgb_verbose": 100,
+        "run_shap": true
+    },
+    "metadata_source": "gs://licencjat_ml_classification/FinBench/metadata/preprocessing_ohe_metadata.json",
+    "training_duration_seconds": 0.7231292724609375,
+    "best_iteration": 54,
+    "best_eval_score": 0.14288347166464577,
+    "validation_set_evaluation": {
+        "accuracy": 0.9270315091210614,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "roc_auc": 0.6973898194828427,
+        "pr_auc": 0.14761968901373135,
+        "confusion_matrix": [
+            [
+                559,
+                0
+            ],
+            [
+                44,
+                0
+            ]
+        ]
+    },
+    "test_set_evaluation": {
+        "accuracy": 0.9383959705540488,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "roc_auc": 0.6912159661644198,
+        "pr_auc": 0.11989344599255437,
+        "confusion_matrix": [
+            [
+                2422,
+                3
+            ],
+            [
+                156,
+                0
+            ]
+        ]
+    },
+    "shap_analysis_run": true,
+    "shap_top_features": [
+        {
+            "feature": "education_4.0",
+            "mean_abs_shap": 0.31335917115211487
+        },
+        {
+            "feature": "extension_source_3",
+            "mean_abs_shap": 0.19183513522148132
+        },
+        {
+            "feature": "gender_1.0",
+            "mean_abs_shap": 0.1502302885055542
+        },
+        {
+            "feature": "own_reality_1.0",
+            "mean_abs_shap": 0.11245687305927277
+        },
+        {
+            "feature": "extension_source_2",
+            "mean_abs_shap": 0.10415925830602646
+        },
+        {
+            "feature": "FONDKAPREMONT_mode_2.0",
+            "mean_abs_shap": 0.09467988461256027
+        },
+        {
+            "feature": "marriage_1.0",
+            "mean_abs_shap": 0.09366683661937714
+        },
+        {
+            "feature": "income_type_2.0",
+            "mean_abs_shap": 0.07734224945306778
+        },
+        {
+            "feature": "organization_type_41.0",
+            "mean_abs_shap": 0.0758468434214592
+        },
+        {
+            "feature": "years_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.06730981171131134
+        },
+        {
+            "feature": "own_reality_0.0",
+            "mean_abs_shap": 0.06697750836610794
+        },
+        {
+            "feature": "walls_material_mode_5.0",
+            "mean_abs_shap": 0.06578930467367172
+        },
+        {
+            "feature": "gender_0.0",
+            "mean_abs_shap": 0.06517760455608368
+        },
+        {
+            "feature": "number_of_SOCIAL_CIRCLE_OBS",
+            "mean_abs_shap": 0.0598631277680397
+        },
+        {
+            "feature": "education_1.0",
+            "mean_abs_shap": 0.059455253183841705
+        },
+        {
+            "feature": "extension_source_1",
+            "mean_abs_shap": 0.05882319435477257
+        },
+        {
+            "feature": "organization_type_5.0",
+            "mean_abs_shap": 0.04551469534635544
+        },
+        {
+            "feature": "DOCUMENT_3",
+            "mean_abs_shap": 0.04429655894637108
+        },
+        {
+            "feature": "occupation_8.0",
+            "mean_abs_shap": 0.043560974299907684
+        },
+        {
+            "feature": "income_type_0.0",
+            "mean_abs_shap": 0.040827397257089615
+        },
+        {
+            "feature": "marriage_0.0",
+            "mean_abs_shap": 0.03423447906970978
+        },
+        {
+            "feature": "income",
+            "mean_abs_shap": 0.03185645863413811
+        },
+        {
+            "feature": "weekday_APPR_process_start_1.0",
+            "mean_abs_shap": 0.029595807194709778
+        },
+        {
+            "feature": "weekday_APPR_process_start_4.0",
+            "mean_abs_shap": 0.026806505396962166
+        },
+        {
+            "feature": "walls_material_mode_4.0",
+            "mean_abs_shap": 0.02414723113179207
+        },
+        {
+            "feature": "occupation_4.0",
+            "mean_abs_shap": 0.020328905433416367
+        },
+        {
+            "feature": "non-living_apartments_mode",
+            "mean_abs_shap": 0.02016294188797474
+        },
+        {
+            "feature": "DOCUMENT_8",
+            "mean_abs_shap": 0.015640482306480408
+        },
+        {
+            "feature": "total_area_mode",
+            "mean_abs_shap": 0.015391349792480469
+        },
+        {
+            "feature": "suite_type_6.0",
+            "mean_abs_shap": 0.015009118244051933
+        },
+        {
+            "feature": "days_of_employment",
+            "mean_abs_shap": 0.01289819460362196
+        },
+        {
+            "feature": "work_phone",
+            "mean_abs_shap": 0.012362743727862835
+        },
+        {
+            "feature": "weekday_APPR_process_start_0.0",
+            "mean_abs_shap": 0.01232720073312521
+        },
+        {
+            "feature": "number_of_children",
+            "mean_abs_shap": 0.012314671650528908
+        },
+        {
+            "feature": "average_of_non-living_apartments",
+            "mean_abs_shap": 0.012016698718070984
+        },
+        {
+            "feature": "weekday_APPR_process_start_5.0",
+            "mean_abs_shap": 0.01147574931383133
+        },
+        {
+            "feature": "median_of_non-living_apartments",
+            "mean_abs_shap": 0.010698962025344372
+        },
+        {
+            "feature": "median_of_non-living_area",
+            "mean_abs_shap": 0.01042227540165186
+        },
+        {
+            "feature": "median_of_entrances",
+            "mean_abs_shap": 0.0100685590878129
+        },
+        {
+            "feature": "occupation_14.0",
+            "mean_abs_shap": 0.009328633546829224
+        },
+        {
+            "feature": "organization_type_46.0",
+            "mean_abs_shap": 0.00923884380608797
+        },
+        {
+            "feature": "years_of_car_ownership",
+            "mean_abs_shap": 0.00897316075861454
+        },
+        {
+            "feature": "months_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.008835122920572758
+        },
+        {
+            "feature": "weekday_APPR_process_start_6.0",
+            "mean_abs_shap": 0.008539080619812012
+        },
+        {
+            "feature": "average_of_non-living_area",
+            "mean_abs_shap": 0.008104129694402218
+        },
+        {
+            "feature": "floors_min_mode",
+            "mean_abs_shap": 0.008064959198236465
+        },
+        {
+            "feature": "organization_type_52.0",
+            "mean_abs_shap": 0.00739572336897254
+        },
+        {
+            "feature": "organization_type_7.0",
+            "mean_abs_shap": 0.00733390124514699
+        },
+        {
+            "feature": "region_rating_client",
+            "mean_abs_shap": 0.006804702337831259
+        },
+        {
+            "feature": "organization_type_11.0",
+            "mean_abs_shap": 0.006797044072300196
+        },
+        {
+            "feature": "number_of_family_members",
+            "mean_abs_shap": 0.006441788282245398
+        },
+        {
+            "feature": "organization_type_53.0",
+            "mean_abs_shap": 0.005945299752056599
+        },
+        {
+            "feature": "number_of_CNT_SOCIAL_CIRCLE_DEF",
+            "mean_abs_shap": 0.005865364335477352
+        },
+        {
+            "feature": "average_of_living_area",
+            "mean_abs_shap": 0.00561126135289669
+        },
+        {
+            "feature": "FONDKAPREMONT_mode_0.0",
+            "mean_abs_shap": 0.005346343852579594
+        },
+        {
+            "feature": "phone",
+            "mean_abs_shap": 0.004834804218262434
+        },
+        {
+            "feature": "non-living_area_mode",
+            "mean_abs_shap": 0.004743071738630533
+        },
+        {
+            "feature": "region_rating_client_with_city",
+            "mean_abs_shap": 0.004340586718171835
+        },
+        {
+            "feature": "floors_max_mode",
+            "mean_abs_shap": 0.004029242321848869
+        },
+        {
+            "feature": "occupation_10.0",
+            "mean_abs_shap": 0.0038908119313418865
+        },
+        {
+            "feature": "median_of_floors_min",
+            "mean_abs_shap": 0.0038557960651814938
+        },
+        {
+            "feature": "suite_type_5.0",
+            "mean_abs_shap": 0.0038350452668964863
+        },
+        {
+            "feature": "marriage_3.0",
+            "mean_abs_shap": 0.0038188330363482237
+        },
+        {
+            "feature": "quarters_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.0036449364852160215
+        },
+        {
+            "feature": "median_of_floors_max",
+            "mean_abs_shap": 0.003550197696313262
+        },
+        {
+            "feature": "average_years_of_building",
+            "mean_abs_shap": 0.0034010550007224083
+        },
+        {
+            "feature": "occupation_3.0",
+            "mean_abs_shap": 0.0031844729091972113
+        },
+        {
+            "feature": "marriage_2.0",
+            "mean_abs_shap": 0.0031671039760112762
+        },
+        {
+            "feature": "median_years_of_building",
+            "mean_abs_shap": 0.0030366964638233185
+        },
+        {
+            "feature": "average_of_entrances",
+            "mean_abs_shap": 0.002880508080124855
+        },
+        {
+            "feature": "entrances_mode",
+            "mean_abs_shap": 0.0028119904454797506
+        },
+        {
+            "feature": "days_of_registration",
+            "mean_abs_shap": 0.002792045706883073
+        },
+        {
+            "feature": "average_of_elevators",
+            "mean_abs_shap": 0.0022376987617462873
+        },
+        {
+            "feature": "hour_APPR_process_start",
+            "mean_abs_shap": 0.0022118412889540195
+        },
+        {
+            "feature": "weekday_APPR_process_start_2.0",
+            "mean_abs_shap": 0.002173043554648757
+        },
+        {
+            "feature": "goods_price",
+            "mean_abs_shap": 0.002156500704586506
+        },
+        {
+            "feature": "organization_type_54.0",
+            "mean_abs_shap": 0.002150647807866335
+        },
+        {
+            "feature": "minimum_of_floors",
+            "mean_abs_shap": 0.002129714237526059
+        },
+        {
+            "feature": "days_of_last_phone_change",
+            "mean_abs_shap": 0.002028920454904437
+        },
+        {
+            "feature": "years_building_mode",
+            "mean_abs_shap": 0.0018555261194705963
+        },
+        {
+            "feature": "credit",
+            "mean_abs_shap": 0.0017042780527845025
+        },
+        {
+            "feature": "average_years_of_beginning_exploitation",
+            "mean_abs_shap": 0.0016699699917808175
+        },
+        {
+            "feature": "average_of_land_area",
+            "mean_abs_shap": 0.001669498858973384
+        },
+        {
+            "feature": "occupation_16.0",
+            "mean_abs_shap": 0.001663765637204051
+        },
+        {
+            "feature": "median_of_land_area",
+            "mean_abs_shap": 0.0015794618520885706
+        },
+        {
+            "feature": "median_of_living_area",
+            "mean_abs_shap": 0.001557917334139347
+        },
+        {
+            "feature": "apartments_median",
+            "mean_abs_shap": 0.0015367756132036448
+        },
+        {
+            "feature": "live_city/not_work_city",
+            "mean_abs_shap": 0.001416163519024849
+        },
+        {
+            "feature": "suite_type_1.0",
+            "mean_abs_shap": 0.0013904314255341887
+        },
+        {
+            "feature": "occupation_13.0",
+            "mean_abs_shap": 0.0013513705926015973
+        },
+        {
+            "feature": "housing_type_5.0",
+            "mean_abs_shap": 0.0013333476381376386
+        },
+        {
+            "feature": "organization_type_49.0",
+            "mean_abs_shap": 0.0012589906109496951
+        },
+        {
+            "feature": "median_of_elevators",
+            "mean_abs_shap": 0.001237217802554369
+        },
+        {
+            "feature": "organization_type_39.0",
+            "mean_abs_shap": 0.0010609067976474762
+        },
+        {
+            "feature": "years_beginning_exploitation_mode",
+            "mean_abs_shap": 0.0010517381597310305
+        },
+        {
+            "feature": "common_area_mode",
+            "mean_abs_shap": 0.0010329741053283215
+        },
+        {
+            "feature": "maximum_of_floors",
+            "mean_abs_shap": 0.001016521011479199
+        },
+        {
+            "feature": "weekday_APPR_process_start_3.0",
+            "mean_abs_shap": 0.0009305969579145312
+        },
+        {
+            "feature": "region_population_relative",
+            "mean_abs_shap": 0.0009238431812264025
+        },
+        {
+            "feature": "organization_type_35.0",
+            "mean_abs_shap": 0.0009172076242975891
+        },
+        {
+            "feature": "average_of_common_area",
+            "mean_abs_shap": 0.0008879880188032985
+        },
+        {
+            "feature": "organization_type_32.0",
+            "mean_abs_shap": 0.0008288551471196115
+        },
+        {
+            "feature": "organization_type_31.0",
+            "mean_abs_shap": 0.0007523655658587813
+        },
+        {
+            "feature": "basement_area_mode",
+            "mean_abs_shap": 0.0007358157890848815
+        },
+        {
+            "feature": "days_of_ID_publish",
+            "mean_abs_shap": 0.0007187506998889148
+        },
+        {
+            "feature": "occupation_9.0",
+            "mean_abs_shap": 0.0007011610432527959
+        },
+        {
+            "feature": "registered_city/not_live_city",
+            "mean_abs_shap": 0.0006940496386960149
+        },
+        {
+            "feature": "occupation_6.0",
+            "mean_abs_shap": 0.0006870553479529917
+        },
+        {
+            "feature": "average_of_apartment",
+            "mean_abs_shap": 0.0006676215562038124
+        },
+        {
+            "feature": "days_after_birth",
+            "mean_abs_shap": 0.0005900632822886109
+        },
+        {
+            "feature": "living_area_mode",
+            "mean_abs_shap": 0.0005688554374501109
+        },
+        {
+            "feature": "apartment_mode",
+            "mean_abs_shap": 0.0005659936578013003
+        },
+        {
+            "feature": "basement_area_median",
+            "mean_abs_shap": 0.0005620639421977103
+        },
+        {
+            "feature": "walls_material_mode_6.0",
+            "mean_abs_shap": 0.0005198345752432942
+        },
+        {
+            "feature": "organization_type_23.0",
+            "mean_abs_shap": 0.00045083448640070856
+        },
+        {
+            "feature": "elevators_mode",
+            "mean_abs_shap": 0.00042974777170456946
+        },
+        {
+            "feature": "organization_type_0.0",
+            "mean_abs_shap": 0.000402058067265898
+        },
+        {
+            "feature": "suite_type_3.0",
+            "mean_abs_shap": 0.00029567419551312923
+        },
+        {
+            "feature": "house_type_mode_0.0",
+            "mean_abs_shap": 0.00028346950421109796
+        },
+        {
+            "feature": "organization_type_19.0",
+            "mean_abs_shap": 0.00024973804829642177
+        },
+        {
+            "feature": "occupation_17.0",
+            "mean_abs_shap": 0.000241606350755319
+        },
+        {
+            "feature": "organization_type_16.0",
+            "mean_abs_shap": 0.00023091222101356834
+        },
+        {
+            "feature": "registered_region/not_live_region",
+            "mean_abs_shap": 0.00022987063857726753
+        },
+        {
+            "feature": "occupation_7.0",
+            "mean_abs_shap": 0.00022659788373857737
+        },
+        {
+            "feature": "average_of_basement_area",
+            "mean_abs_shap": 0.00022494974837172776
+        },
+        {
+            "feature": "annuity",
+            "mean_abs_shap": 0.00021297275088727474
+        },
+        {
+            "feature": "housing_type_2.0",
+            "mean_abs_shap": 0.00020664854673668742
+        },
+        {
+            "feature": "organization_type_45.0",
+            "mean_abs_shap": 0.00016981433145701885
+        },
+        {
+            "feature": "organization_type_13.0",
+            "mean_abs_shap": 0.0001549042935948819
+        },
+        {
+            "feature": "DOCUMENT_5",
+            "mean_abs_shap": 0.00013728249177802354
+        },
+        {
+            "feature": "registered_city/not_work_city",
+            "mean_abs_shap": 0.00013478705659508705
+        },
+        {
+            "feature": "occupation_0.0",
+            "mean_abs_shap": 0.00013306070468388498
+        },
+        {
+            "feature": "occupation_5.0",
+            "mean_abs_shap": 0.00011149248894071206
+        },
+        {
+            "feature": "land_area_mode",
+            "mean_abs_shap": 0.0001043215233949013
+        },
+        {
+            "feature": "organization_type_18.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_17.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_20.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_15.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_21.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_22.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_16",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "walls_material_mode_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "walls_material_mode_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "walls_material_mode_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "house_type_mode_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "house_type_mode_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "emergency_state_mode_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "FONDKAPREMONT_mode_3.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "FONDKAPREMONT_mode_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_9.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_8.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "live_region/not_work_region",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "registered_region/not_work_region",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_48.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_44.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_14.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_42.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_40.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_4.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_38.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_37.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_36.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_34.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_33.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_30.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_3.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_29.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_28.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_27.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_26.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_25.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_43.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_4",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_2",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "contract_type_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "contract_type_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "weeks_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_15",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_14",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_13",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_12",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_11",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_10",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_9",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "days_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "walls_material_mode_3.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_21",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_20",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_19",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_18",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_17",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "email",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "mobile",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "cell_phone",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "mobile_phone",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_6.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_51.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_50.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "emergency_state_mode_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "hours_of_REQ_CREDIT_BUREAU",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_12.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_10.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "organization_type_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "average_of_living_apartments",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "occupation_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "occupation_15.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "occupation_12.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "occupation_11.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "occupation_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_type_4.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_type_3.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_type_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "housing_type_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_6",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "education_3.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "living_apartments_mode",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "median_of_common_area",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "median_years_of_beginning_exploitation",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "education_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "education_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "income_type_1.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "median_of_living_apartments",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "suite_type_4.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "suite_type_2.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "suite_type_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "own_car_0.0",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "DOCUMENT_7",
+            "mean_abs_shap": 0.0
+        },
+        {
+            "feature": "marriage_4.0",
+            "mean_abs_shap": 0.0
+        }
+    ],
+    "output_gcs_prefix": "gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_164942",
+    "saved_model_path": "gs://licencjat_ml_classification/FinBench/results/xgb_run_20250514_164942/model/finbench_xgboost_model.json"
+}

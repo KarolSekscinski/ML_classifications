@@ -1,0 +1,36 @@
+{
+    "model_type": "LinearSVC (Calibrated)",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json",
+        "gcs_output_prefix": "NeurIPS/results/svm_run_20250513_183814",
+        "svm_c": 1.0,
+        "svm_max_iter": 2000,
+        "run_shap": true,
+        "shap_sample_size": 100
+    },
+    "metadata_source": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_metadata.json",
+    "training_duration_seconds": 22.160063982009888,
+    "evaluation_metrics": {
+        "accuracy": 0.79662,
+        "precision": 0.039104806632481906,
+        "recall": 0.7398005439709883,
+        "f1_score": 0.07428311333636778,
+        "roc_auc": 0.8442529211436046,
+        "pr_auc": 0.09779910141387446,
+        "confusion_matrix": [
+            [
+                157692,
+                40102
+            ],
+            [
+                574,
+                1632
+            ]
+        ]
+    },
+    "shap_analysis_run": true,
+    "shap_top_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/NeurIPS/results/svm_run_20250513_183814",
+    "saved_model_path": "gs://licencjat_ml_classification/NeurIPS/results/svm_run_20250513_183814/model/linearsvc_calibrated_model.joblib"
+}

@@ -1,0 +1,65 @@
+{
+    "model_type": "FT-Transformer",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_ft_metadata.json",
+        "gcs_output_prefix": "NeurIPS/results/ft",
+        "epochs": 3,
+        "batch_size": 256,
+        "learning_rate": 0.0001,
+        "weight_decay": 1e-05,
+        "num_workers": 2,
+        "ft_d_token": 192,
+        "ft_n_blocks": 3,
+        "ft_n_heads": 8,
+        "ft_attention_dropout": 0.2,
+        "ft_ffn_dropout": 0.1,
+        "ft_residual_dropout": 0.0,
+        "ft_ffn_factor": 1.3333333333333333,
+        "run_shap": true,
+        "shap_sample_size": 200
+    },
+    "device_used": "cuda",
+    "metadata_source": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_ft_metadata.json",
+    "n_numerical_features": 17,
+    "categorical_cardinalities": [
+        9,
+        5,
+        7,
+        7,
+        2,
+        5,
+        8
+    ],
+    "training_duration_seconds": 447.6135878562927,
+    "training_avg_loss_per_epoch": [
+        0.30653750320847695,
+        0.21725932889190433,
+        0.18296645526764888
+    ],
+    "test_set_evaluation": {
+        "loss": 0.16500624157774174,
+        "metrics": {
+            "accuracy": 0.9285249710083008,
+            "f1": 0.12381244450807571,
+            "pr_auc": 0.08215600997209549,
+            "precision": 0.071585513651371,
+            "recall": 0.45784226059913635,
+            "roc_auc": 0.8416129946708679,
+            "confusion_matrix": [
+                [
+                    184695,
+                    13099
+                ],
+                [
+                    1196,
+                    1010
+                ]
+            ]
+        }
+    },
+    "shap_analysis_run": true,
+    "shap_top_numerical_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/NeurIPS/results/ft",
+    "saved_model_path": "gs://licencjat_ml_classification/NeurIPS/results/ft/model/ft_transformer_model_state_dict.pt"
+}

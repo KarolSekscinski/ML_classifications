@@ -1,0 +1,92 @@
+{
+    "model_type": "FT-Transformer",
+    "script_args": {
+        "gcs_bucket": "licencjat_ml_classification",
+        "metadata_uri": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_ft_metadata.json",
+        "gcs_output_prefix": "NeurIPS/results/ft_transformer_run_20250513_225736",
+        "epochs": 30,
+        "batch_size": 256,
+        "learning_rate": 0.0001,
+        "weight_decay": 1e-05,
+        "num_workers": 2,
+        "ft_d_token": 192,
+        "ft_n_blocks": 3,
+        "ft_n_heads": 8,
+        "ft_attention_dropout": 0.2,
+        "ft_ffn_dropout": 0.1,
+        "ft_residual_dropout": 0.0,
+        "ft_ffn_factor": 1.3333333333333333,
+        "run_shap": false,
+        "shap_sample_size": 200
+    },
+    "device_used": "cuda",
+    "metadata_source": "gs://licencjat_ml_classification/NeurIPS/metadata/preprocessing_ft_metadata.json",
+    "n_numerical_features": 17,
+    "categorical_cardinalities": [
+        9,
+        5,
+        7,
+        7,
+        2,
+        5,
+        8
+    ],
+    "training_duration_seconds": 4471.0351502895355,
+    "training_avg_loss_per_epoch": [
+        0.3124085374487445,
+        0.2396366513701501,
+        0.19859165747221216,
+        0.16613960547709553,
+        0.1403537334242142,
+        0.12394932996323775,
+        0.11084966925498603,
+        0.10033116240050753,
+        0.09108402144401273,
+        0.08377462654127171,
+        0.07722721809270634,
+        0.07172821987895171,
+        0.06700155285763455,
+        0.06256854628787935,
+        0.05869853063084279,
+        0.05509259507366776,
+        0.05201198558290846,
+        0.049410112096260075,
+        0.04616074624744948,
+        0.0445054990186111,
+        0.041662217488446715,
+        0.04043513474995297,
+        0.03843431596215471,
+        0.03659197124880047,
+        0.03528541532371932,
+        0.034084879851679184,
+        0.03267453650518196,
+        0.03143444582817679,
+        0.030260421020858415,
+        0.029404390915602794
+    ],
+    "test_set_evaluation": {
+        "loss": 0.12041755489614385,
+        "metrics": {
+            "accuracy": 0.9749100208282471,
+            "f1": 0.10996807366609573,
+            "pr_auc": 0.05003732815384865,
+            "precision": 0.09032633900642395,
+            "recall": 0.14052583277225494,
+            "roc_auc": 0.7894719839096069,
+            "confusion_matrix": [
+                [
+                    194672,
+                    3122
+                ],
+                [
+                    1896,
+                    310
+                ]
+            ]
+        }
+    },
+    "shap_analysis_run": false,
+    "shap_top_numerical_features": null,
+    "output_gcs_prefix": "gs://licencjat_ml_classification/NeurIPS/results/ft_transformer_run_20250513_225736",
+    "saved_model_path": "gs://licencjat_ml_classification/NeurIPS/results/ft_transformer_run_20250513_225736/model/ft_transformer_model_state_dict.pt"
+}
