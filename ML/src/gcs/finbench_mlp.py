@@ -108,9 +108,10 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch_num):
         total_loss += loss.item()
         if (i + 1) % 200 == 0: logging.info(f'Epoch {epoch_num}, Batch {i + 1}/{len(loader)}, Loss: {loss.item():.4f}')
     avg_loss = total_loss / len(loader)
+    duration = time.time() - start_time
     logging.info(
-        f'Epoch {epoch_num} Train Summary: Avg Loss: {avg_loss:.4f}, Duration: {time.time() - start_time:.2f}s')
-    return avg_loss
+        f'Epoch {epoch_num} Train Summary: Avg Loss: {avg_loss:.4f}, Duration: {duration:.2f}s')
+    return avg_loss, duration
 
 
 def evaluate_model_torch(model, loader, criterion, device, dataset_name="Validation"):

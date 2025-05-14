@@ -29,16 +29,25 @@ plt.style.use('seaborn-v0_8-darkgrid')
 MODEL_NAME = "FinBench_FTTransformer"  # Used for naming outputs
 
 
-# --- Helper Functions (Reused and adapted) ---
-def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns=None):
-    if not gcs_path_in_metadata or not gcs_path_in_metadata.startswith(f"gs://{gcs_bucket}/"):
-        # Handle cases where a feature type might be absent (e.g. no numerical features)
-        if gcs_path_in_metadata is None and expected_columns is not None and not expected_columns:  # No columns expected
+# --- Helper Functions ---
+def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=None):
+    """
+    Loads CSV data from GCS path specified in metadata into a pandas DataFrame.
+    gcs_path_in_metadata should be the full gs://bucket/path/to/file.csv from metadata.
+    If expected_columns_list is an empty list (meaning no features of this type), returns an empty DataFrame.
+    """
+    if gcs_path_in_metadata is None:
+        if expected_columns_list is not None and not expected_columns_list:  # No columns expected for this feature type
             logging.info(
-                f"No data path provided and no columns expected (e.g. no numerical features). Returning empty DataFrame.")
+                f"No data path provided and no columns expected (e.g., no numerical features). Returning empty DataFrame.")
             return pd.DataFrame()
-        logging.error(f"Invalid GCS path from metadata: {gcs_path_in_metadata} for bucket {gcs_bucket}")
-        raise ValueError(f"Invalid GCS path: {gcs_path_in_metadata}")
+        else:
+            logging.error(f"GCS path is None but columns were expected: {expected_columns_list}")
+            raise ValueError("GCS path is None but columns were expected.")
+
+    if not gcs_path_in_metadata.startswith(f"gs://{gcs_bucket}/"):
+        logging.error(f"Invalid GCS path format: {gcs_path_in_metadata} for bucket {gcs_bucket}")
+        raise ValueError(f"Invalid GCS path format: {gcs_path_in_metadata}")
 
     blob_name = gcs_path_in_metadata.replace(f"gs://{gcs_bucket}/", "")
     logging.info(f"Loading data from: gs://{gcs_bucket}/{blob_name}")
@@ -46,19 +55,22 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns=None):
         data_bytes = gcs_utils.download_blob_to_memory(gcs_bucket, blob_name)
         if data_bytes is None: raise FileNotFoundError(f"GCS file download failed: gs://{gcs_bucket}/{blob_name}")
         df = pd.read_csv(BytesIO(data_bytes))
-        # No feature_names_list to assign here, as columns should be correct from preprocessing
+
         logging.info(f"Data loaded from gs://{gcs_bucket}/{blob_name}. Shape: {df.shape}")
-        if expected_columns is not None and df.shape[1] > 0:  # Check if df has columns
-            if list(df.columns) != expected_columns:
+        # Optional: Validate columns if expected_columns_list is provided and df is not empty
+        if expected_columns_list is not None and not df.empty:
+            if list(df.columns) != expected_columns_list:
                 logging.warning(
-                    f"Column mismatch for {blob_name}. Expected: {expected_columns}, Got: {list(df.columns)}. This might be okay if order differs but names are present for selection later.")
+                    f"Column mismatch for {blob_name}. Expected: {expected_columns_list}, Got: {list(df.columns)}. This might be okay if order differs but names are present for selection later, or if preprocessor handled naming.")
+        elif expected_columns_list and df.empty and expected_columns_list:  # Expected columns but got empty df
+            logging.warning(f"Loaded empty DataFrame from {blob_name} but expected columns: {expected_columns_list}")
+
         return df
     except Exception as e:
         logging.error(f"Error loading data from gs://{gcs_bucket}/{blob_name}: {e}"); raise
 
 
 def save_plot_to_gcs(fig, gcs_bucket, gcs_blob_name):
-    # (Identical to previous versions)
     logging.info(f"Saving plot to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
     try:
         buf = BytesIO();
@@ -72,7 +84,6 @@ def save_plot_to_gcs(fig, gcs_bucket, gcs_blob_name):
 
 
 def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
-    # (Identical to previous versions)
     logging.info(f"Saving model state_dict to GCS: gs://{gcs_bucket}/{gcs_blob_name}")
     try:
         with BytesIO() as buf:
@@ -87,35 +98,33 @@ def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
 class TabularDataset(Dataset):
     def __init__(self, X_num_np, X_cat_np, Y_np):
         self.X_num = torch.tensor(X_num_np, dtype=torch.float32)
-        # Ensure X_cat is int64 for embedding layers
-        self.X_cat = torch.tensor(X_cat_np, dtype=torch.int64)
-        self.Y = torch.tensor(Y_np, dtype=torch.int64)  # Targets for metrics
-        # Check if any feature set is empty
+        self.X_cat = torch.tensor(X_cat_np, dtype=torch.int64)  # Categorical indices MUST be long integers
+        self.Y = torch.tensor(Y_np, dtype=torch.int64)
         self.has_num = X_num_np.shape[1] > 0
         self.has_cat = X_cat_np.shape[1] > 0
+        if X_num_np.shape[0] != Y_np.shape[0] or (self.has_cat and X_cat_np.shape[0] != Y_np.shape[0]):
+            raise ValueError("Mismatch in number of samples between features and target.")
 
     def __len__(self):
         return len(self.Y)
 
     def __getitem__(self, idx):
-        # Return empty tensors if features are not present, model's forward needs to handle this
         x_num_item = self.X_num[idx] if self.has_num else torch.empty(0, dtype=torch.float32)
         x_cat_item = self.X_cat[idx] if self.has_cat else torch.empty(0, dtype=torch.int64)
         return x_num_item, x_cat_item, self.Y[idx]
 
 
-# --- Training & Evaluation Functions (Adapted for FT-Transformer input) ---
+# --- Training & Evaluation Functions ---
 def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
     model.train();
     total_loss = 0.0;
     start_time = time.time()
     for i, (x_num, x_cat, targets) in enumerate(loader):
-        x_num, x_cat, targets_dev = x_num.to(device), x_cat.to(device), targets.to(device)
+        x_num_dev, x_cat_dev, targets_dev = x_num.to(device), x_cat.to(device), targets.to(device)
         targets_float = targets_dev.float().unsqueeze(1)
         optimizer.zero_grad()
-        # Pass None if feature type is absent; model's forward in rtdl handles this
-        current_x_num = x_num if x_num.shape[-1] > 0 else None
-        current_x_cat = x_cat if x_cat.shape[-1] > 0 else None
+        current_x_num = x_num_dev if x_num_dev.numel() > 0 and x_num_dev.shape[-1] > 0 else None
+        current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
         outputs = model(current_x_num, current_x_cat)
         loss = criterion(outputs, targets_float);
         loss.backward();
@@ -123,12 +132,13 @@ def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
         total_loss += loss.item()
         if (i + 1) % 200 == 0: logging.info(f'Epoch {epoch_num}, Batch {i + 1}/{len(loader)}, Loss: {loss.item():.4f}')
     avg_loss = total_loss / len(loader)
-    epoch_duration = time.time() - start_time  # Calculate duration
+    epoch_duration = time.time() - start_time
     logging.info(f'Epoch {epoch_num} Train Summary: Avg Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f}s')
-    return avg_loss, epoch_duration
+    return avg_loss, epoch_duration  # Ensure two values are returned
 
 
-def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation"):
+def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation",
+                      actual_cat_cardinalities_for_debug=None):
     model.eval();
     total_loss = 0.0;
     all_preds_np = [];
@@ -139,29 +149,56 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
         'recall': torchmetrics.Recall(task="binary"), 'f1': torchmetrics.F1Score(task="binary"),
         'roc_auc': torchmetrics.AUROC(task="binary"), 'pr_auc': torchmetrics.AveragePrecision(task="binary")
     }).to(device)
+
     with torch.no_grad():
-        for x_num, x_cat, targets in loader:
-            x_num, x_cat, targets_dev = x_num.to(device), x_cat.to(device), targets.to(device)
+        for batch_idx, (x_num, x_cat, targets) in enumerate(loader):
+            x_num_dev, x_cat_dev, targets_dev = x_num.to(device), x_cat.to(device), targets.to(device)
             targets_float = targets_dev.float().unsqueeze(1);
             targets_int = targets_dev.int()
-            current_x_num = x_num if x_num.shape[-1] > 0 else None
-            current_x_cat = x_cat if x_cat.shape[-1] > 0 else None
-            outputs_logits = model(current_x_num, current_x_cat)
-            loss = criterion(outputs_logits, targets_float);
-            total_loss += loss.item()
+
+            # --- DETAILED DEBUG BLOCK for x_cat ---
+            if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 and actual_cat_cardinalities_for_debug is not None:
+                # Only log extensively for test set or first few batches of validation for brevity
+                if dataset_name == "Test Set" or (dataset_name == "Validation (Epoch End)" and batch_idx < 2):
+                    logging.debug(f"DEBUG: {dataset_name} Batch {batch_idx}, x_cat_dev shape: {x_cat_dev.shape}")
+                    for i in range(x_cat_dev.shape[1]):
+                        col_data = x_cat_dev[:, i]
+                        col_min = col_data.min().item();
+                        col_max = col_data.max().item()
+                        cardinality = actual_cat_cardinalities_for_debug[i]
+                        logging.debug(
+                            f"  Cat Col {i}: Min Index={col_min}, Max Index={col_max} -- Cardinality for Emb: {cardinality}")
+                        if col_min < 0: logging.error(
+                            f"    FATAL_DEBUG: Negative index {col_min} in x_cat_dev col {i}!")
+                        if col_max >= cardinality: logging.error(
+                            f"    FATAL_DEBUG: Index {col_max} >= Cardinality {cardinality} in x_cat_dev col {i}! Max valid: {cardinality - 1}.")
+            # --- END DETAILED DEBUG BLOCK ---
+
+            current_x_num = x_num_dev if x_num_dev.numel() > 0 and x_num_dev.shape[-1] > 0 else None
+            current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
+
+            outputs_logits = model(current_x_num, current_x_cat)  # Error likely originates here
+            loss = criterion(outputs_logits, targets_float)
+            total_loss += loss.item()  # Error often reported here due to async CUDA
+
             outputs_probs = torch.sigmoid(outputs_logits).squeeze()
             metrics_collection.update(outputs_probs, targets_int)
             all_probs_np.append(outputs_probs.cpu().numpy());
             all_preds_np.append((outputs_probs > 0.5).int().cpu().numpy())
             all_targets_np.append(targets_int.cpu().numpy())
+
     avg_loss = total_loss / len(loader);
     final_metrics_tensors = metrics_collection.compute()
     final_metrics = {k: v.item() for k, v in final_metrics_tensors.items()}
-    all_preds_np = np.concatenate(all_preds_np);
-    all_targets_np = np.concatenate(all_targets_np);
-    all_probs_np = np.concatenate(all_probs_np)
-    cm = confusion_matrix(all_targets_np, all_preds_np)
+    all_preds_np = np.concatenate(all_preds_np) if all_preds_np else np.array([])
+    all_targets_np = np.concatenate(all_targets_np) if all_targets_np else np.array([])
+    all_probs_np = np.concatenate(all_probs_np) if all_probs_np else np.array([])
+
+    cm = np.zeros((2, 2), dtype=int)  # Default empty CM
+    if all_targets_np.size > 0 and all_preds_np.size > 0:  # Ensure not empty before CM
+        cm = confusion_matrix(all_targets_np, all_preds_np)
     final_metrics["confusion_matrix"] = cm.tolist()
+
     logging.info(f"--- {dataset_name} Evaluation ---");
     logging.info(f"Avg Loss: {avg_loss:.4f}")
     for name, value in final_metrics.items():
@@ -170,10 +207,10 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
     return avg_loss, final_metrics, cm, all_targets_np, all_probs_np
 
 
-# plot_evaluation_charts_torch (Identical to mlp_finbench_cf2.py)
 def plot_evaluation_charts_torch(y_true_np, y_pred_proba_np, cm, plot_suffix, model_display_name, gcs_bucket,
                                  gcs_output_prefix):
-    try:  # CM
+    # (Identical to mlp_finbench_cf2.py)
+    try:
         fig_cm, ax_cm = plt.subplots(figsize=(6, 5));
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, cbar=False)
         ax_cm.set_title(f'{model_display_name} CM ({plot_suffix})');
@@ -183,8 +220,9 @@ def plot_evaluation_charts_torch(y_true_np, y_pred_proba_np, cm, plot_suffix, mo
                          f"{gcs_output_prefix}/plots/{MODEL_NAME.lower()}_cm_{plot_suffix.lower().replace(' ', '_')}.png")
     except Exception as e:
         logging.error(f"Failed CM plot for {plot_suffix}: {e}")
-    if y_pred_proba_np is None: logging.warning(f"No probabilities for {plot_suffix}. Skipping ROC/PR."); return
-    try:  # ROC
+    if y_pred_proba_np is None or y_pred_proba_np.size == 0: logging.warning(
+        f"No probabilities for {plot_suffix}. Skipping ROC/PR."); return
+    try:
         fig_roc, ax_roc = plt.subplots(figsize=(7, 6));
         RocCurveDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_roc, name=model_display_name)
         ax_roc.plot([0, 1], [0, 1], 'k--', label='Chance');
@@ -194,7 +232,7 @@ def plot_evaluation_charts_torch(y_true_np, y_pred_proba_np, cm, plot_suffix, mo
                          f"{gcs_output_prefix}/plots/{MODEL_NAME.lower()}_roc_{plot_suffix.lower().replace(' ', '_')}.png")
     except Exception as e:
         logging.error(f"Failed ROC plot for {plot_suffix}: {e}")
-    try:  # PR
+    try:
         fig_pr, ax_pr = plt.subplots(figsize=(7, 6));
         PrecisionRecallDisplay.from_predictions(y_true_np, y_pred_proba_np, ax=ax_pr, name=model_display_name)
         ax_pr.set_title(f'{model_display_name} PR Curve ({plot_suffix})')
@@ -204,41 +242,38 @@ def plot_evaluation_charts_torch(y_true_np, y_pred_proba_np, cm, plot_suffix, mo
         logging.error(f"Failed PR plot for {plot_suffix}: {e}")
 
 
-# SHAP using KernelExplainer for FT-Transformer's numerical features
 def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
-                                    # test_loader_num_only provides only X_num_np for explanation
                                     numerical_feature_names, fixed_cat_background_tensor,
-                                    # Fixed categorical tensor from training data
                                     device, gcs_bucket, gcs_output_prefix,
                                     background_sample_size=50, explain_sample_size=10):
+    # (Identical to previous version with KernelExplainer for numerical features)
     logging.warning(f"--- SHAP Analysis ({MODEL_NAME} - KernelExplainer on Numerical Features) ---")
     logging.warning(
         f"KernelExplainer is VERY SLOW. Background: {background_sample_size}, Explain: {explain_sample_size} samples.")
+    if not numerical_feature_names:  # Check if there are numerical features
+        logging.warning("No numerical features to explain with SHAP. Skipping SHAP analysis.")
+        return None, None
     try:
         model.eval()
-        # 1. Prepare Background Data for KernelExplainer (Numerical Part)
         bg_num_list = []
         count = 0
-        for x_num, _, _ in train_loader:  # Iterate to collect numerical training samples
+        for x_num, _, _ in train_loader:
             batch_size = x_num.shape[0];
             needed = background_sample_size - count;
             take = min(needed, batch_size)
-            if needed <= 0: break
+            if needed <= 0 or x_num.shape[1] == 0: break  # Stop if enough samples or no num features in batch
             bg_num_list.append(x_num[:take].cpu().numpy());
-            count += take  # Store as numpy
+            count += take
         if not bg_num_list: raise ValueError("Could not get numerical background samples for SHAP masker.")
         background_num_masker_np = np.concatenate(bg_num_list)
-        # Summarize if too large
-        if background_num_masker_np.shape[0] > 2 * background_sample_size:  # Heuristic
+        if background_num_masker_np.shape[0] > 2 * background_sample_size:
             background_masker_data = shap.kmeans(background_num_masker_np, min(50, background_num_masker_np.shape[0]))
-            logging.info(f"Summarized numerical background data for masker to shape {background_masker_data.shape}")
         else:
             background_masker_data = background_num_masker_np
 
-        # 2. Prepare Data to Explain (Numerical Part from test_loader_num_only)
         explain_num_list = []
         count = 0
-        for x_num_batch_np in test_loader_num_only:  # test_loader_num_only yields batches of X_num_np directly
+        for x_num_batch_np in test_loader_num_only:
             current_batch_size = x_num_batch_np.shape[0];
             needed = explain_sample_size - count;
             take = min(needed, current_batch_size)
@@ -249,55 +284,35 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
         test_sample_num_np = np.concatenate(explain_num_list)
         logging.info(f"Data to explain (numerical part) shape: {test_sample_num_np.shape}")
 
-        # 3. Define Prediction Function for KernelExplainer
-        # It takes a batch of numerical features (numpy) and uses a fixed categorical tensor.
-        # Use a single representative fixed categorical vector for all predictions to simplify.
-        if fixed_cat_background_tensor is not None and fixed_cat_background_tensor.shape[0] > 0:
-            single_fixed_cat_vector = fixed_cat_background_tensor[0:1, :].to(device)  # Shape [1, n_cat_features]
-        else:  # No categorical features
-            single_fixed_cat_vector = None
+        single_fixed_cat_vector = None
+        if fixed_cat_background_tensor is not None and fixed_cat_background_tensor.numel() > 0 and \
+                fixed_cat_background_tensor.shape[0] > 0:
+            single_fixed_cat_vector = fixed_cat_background_tensor[0:1, :].to(device)
 
         def predict_fn_for_kernel(x_num_np_batch):
             x_num_torch = torch.tensor(x_num_np_batch, dtype=torch.float32).to(device)
             current_batch_size = x_num_torch.shape[0]
-
-            cat_input_for_model = None
-            if single_fixed_cat_vector is not None:
-                cat_input_for_model = single_fixed_cat_vector.repeat(current_batch_size, 1)
-
+            cat_input_for_model = single_fixed_cat_vector.repeat(current_batch_size,
+                                                                 1) if single_fixed_cat_vector is not None else None
             num_input_for_model = x_num_torch if x_num_torch.shape[1] > 0 else None
-
             with torch.no_grad():
                 logits = model(num_input_for_model, cat_input_for_model)
                 probs = torch.sigmoid(logits)
-            # KernelExplainer usually expects probabilities for each class if multi-output
-            # For binary, returning P(class 1) and P(class 0) is common.
-            # Or if it expects single output for shap_values then just P(class 1)
-            probs_for_shap = torch.cat((1 - probs, probs), dim=1)  # [P(class 0), P(class 1)]
+            probs_for_shap = torch.cat((1 - probs, probs), dim=1)
             return probs_for_shap.cpu().numpy()
 
-        # 4. Initialize and Run KernelExplainer
         start_shap_time = time.time();
         logging.info("Initializing SHAP KernelExplainer...")
         explainer = shap.KernelExplainer(predict_fn_for_kernel, background_masker_data)
         logging.info(f"Calculating SHAP values for numerical features on {test_sample_num_np.shape[0]} samples...")
-        # nsamples needs to be carefully chosen for KernelExplainer for performance.
-        # 'auto' can be very large. For N features, 2*N+2048 is a rule of thumb for full coverage.
-        # For fewer features, a smaller number might be okay. Start small.
-        num_shap_samples = min(2 * test_sample_num_np.shape[1] + 512, 200)  # Heuristic for nsamples
-        if test_sample_num_np.shape[1] == 0:  # No numerical features
-            logging.warning("No numerical features to explain with SHAP. Skipping SHAP plot.")
-            return None, None
+        num_shap_samples = min(2 * test_sample_num_np.shape[1] + 512, 200) if test_sample_num_np.shape[1] > 0 else 50
 
         shap_values_output = explainer.shap_values(test_sample_num_np, nsamples=num_shap_samples)
         end_shap_time = time.time();
         logging.info(f"SHAP values (numerical) calculated in {end_shap_time - start_shap_time:.2f}s.")
-
-        # KernelExplainer with predict_fn returning 2 columns (for binary) will give a list of 2 SHAP arrays
         shap_values_num_np = shap_values_output[1] if isinstance(shap_values_output, list) and len(
             shap_values_output) == 2 else shap_values_output
 
-        # 5. Plot and Log
         fig_shap, _ = plt.subplots();
         shap.summary_plot(shap_values_num_np, test_sample_num_np, feature_names=numerical_feature_names,
                           plot_type="dot", show=False)
@@ -350,11 +365,12 @@ def main(args):
 
         num_feat_names = metadata.get("original_numerical_features", [])
         cat_feat_names = metadata.get("original_categorical_features", [])
-        cat_cardinalities = metadata.get("cat_feature_cardinalities_from_encoder")  # Use encoder's cardinalities
-        if cat_feat_names and not cat_cardinalities: raise ValueError(
+        # Use cardinalities derived from the encoder during preprocessing
+        actual_cat_cardinalities = metadata.get("cat_feature_cardinalities_from_encoder")
+        if cat_feat_names and actual_cat_cardinalities is None: raise ValueError(
             "'cat_feature_cardinalities_from_encoder' missing in metadata when categorical features exist.")
-        if cat_feat_names and len(cat_feat_names) != len(cat_cardinalities): raise ValueError(
-            "Mismatch between cat feature names and cardinalities count.")
+        if cat_feat_names and len(cat_feat_names) != len(actual_cat_cardinalities): raise ValueError(
+            "Mismatch between cat feature names and cardinalities count from encoder.")
 
         data_paths = metadata.get("gcs_paths", {})
         paths = {
@@ -365,35 +381,42 @@ def main(args):
             "X_test_num": data_paths.get("X_test_num_scaled"), "X_test_cat": data_paths.get("X_test_cat_indices"),
             "y_test": data_paths.get("y_test")
         }
-        # Check paths based on feature presence
         required_y_paths = ["y_train", "y_val", "y_test"]
+        # Check if paths are None (meaning feature type is absent) vs. empty string (meaning path is missing)
         if num_feat_names: required_y_paths.extend(["X_train_num", "X_val_num", "X_test_num"])
         if cat_feat_names: required_y_paths.extend(["X_train_cat", "X_val_cat", "X_test_cat"])
-        if not all(paths.get(p) for p in required_y_paths):
-            missing_p = [p for p in required_y_paths if not paths.get(p)]
-            raise ValueError(f"Required data paths missing in FT metadata: {missing_p}")
+
+        for p_name in required_y_paths:
+            if paths.get(p_name) is None:  # Path explicitly None in metadata (e.g. no num features)
+                if (p_name.endswith("_num") and not num_feat_names) or \
+                        (p_name.endswith("_cat") and not cat_feat_names):
+                    logging.info(f"Path for {p_name} is None, consistent with absence of this feature type.")
+                else:  # Path is None but features of this type are expected
+                    raise ValueError(f"Path for {p_name} is None in metadata, but features of this type are expected.")
+            elif not paths.get(p_name):  # Path is an empty string or missing
+                raise ValueError(f"Required data path for '{p_name}' is missing or empty in FT metadata.")
 
     except Exception as e:
-        logging.error(f"Failed loading/parsing FT metadata: {e}"); return
+        logging.error(f"Failed loading/parsing FT metadata: {e}"); import traceback; logging.error(
+            traceback.format_exc()); return
 
     # 2. Load Data & Create Tensors/DataLoaders
     try:
         logging.info("Loading FT data & creating Tensors/DataLoaders...")
-        # Load numerical data if present
         X_train_num_df = load_data_from_gcs(GCS_BUCKET, paths["X_train_num"],
                                             num_feat_names) if num_feat_names else pd.DataFrame()
         X_val_num_df = load_data_from_gcs(GCS_BUCKET, paths["X_val_num"],
                                           num_feat_names) if num_feat_names else pd.DataFrame()
         X_test_num_df = load_data_from_gcs(GCS_BUCKET, paths["X_test_num"],
                                            num_feat_names) if num_feat_names else pd.DataFrame()
-        # Load categorical data if present
+
         X_train_cat_df = load_data_from_gcs(GCS_BUCKET, paths["X_train_cat"],
                                             cat_feat_names) if cat_feat_names else pd.DataFrame()
         X_val_cat_df = load_data_from_gcs(GCS_BUCKET, paths["X_val_cat"],
                                           cat_feat_names) if cat_feat_names else pd.DataFrame()
         X_test_cat_df = load_data_from_gcs(GCS_BUCKET, paths["X_test_cat"],
                                            cat_feat_names) if cat_feat_names else pd.DataFrame()
-        # Load target variables
+
         y_train_df = load_data_from_gcs(GCS_BUCKET, paths["y_train"]);
         y_val_df = load_data_from_gcs(GCS_BUCKET, paths["y_val"]);
         y_test_df = load_data_from_gcs(GCS_BUCKET, paths["y_test"])
@@ -416,6 +439,10 @@ def main(args):
             (len(y_test_df), 0), dtype=np.int64)
         y_test_np = y_test_df.iloc[:, 0].values.astype(np.int64)
 
+        logging.info(f"Train shapes: X_num={X_train_num_np.shape}, X_cat={X_train_cat_np.shape}, y={y_train_np.shape}")
+        logging.info(f"Val shapes: X_num={X_val_num_np.shape}, X_cat={X_val_cat_np.shape}, y={y_val_np.shape}")
+        logging.info(f"Test shapes: X_num={X_test_num_np.shape}, X_cat={X_test_cat_np.shape}, y={y_test_np.shape}")
+
         train_dataset = TabularDataset(X_train_num_np, X_train_cat_np, y_train_np)
         val_dataset = TabularDataset(X_val_num_np, X_val_cat_np, y_val_np)
         test_dataset = TabularDataset(X_test_num_np, X_test_cat_np, y_test_np)
@@ -427,37 +454,30 @@ def main(args):
                                 pin_memory=pin_mem)
         test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
                                  pin_memory=pin_mem)
-        logging.info(
-            f"DataLoaders created. Train: {len(train_loader)}, Val: {len(val_loader)}, Test: {len(test_loader)}")
     except Exception as e:
         logging.error(f"Failed FT data loading or Tensor/DataLoader creation: {e}"); import traceback; logging.error(
             traceback.format_exc()); return
 
-    # 3. Initialize Model, Criterion, Optimizer
+    # 3. Initialize Model
     n_actual_num_features = X_train_num_np.shape[1]
-    # Use cat_cardinalities from metadata (derived from OrdinalEncoder in preprocess_ft)
-    actual_cat_cardinalities = cat_cardinalities if cat_feat_names else []
+    current_cat_cardinalities = actual_cat_cardinalities if cat_feat_names else []  # Use [] if no cat features
 
-    # Ensure arguments for FTTransformer.make_baseline are correct based on your rtdl version
-    # This instantiation uses the API from rtdl > 0.0.13 (e.g., 0.4.1) as discussed
     calculated_ffn_d_hidden = int(args.ft_d_token * args.ft_ffn_factor)
     logging.info(
-        f"Initializing FTTransformer using make_baseline. n_num_features={n_actual_num_features}, cat_cardinalities={actual_cat_cardinalities}, d_token={args.ft_d_token}, n_blocks={args.ft_n_blocks}, ffn_d_hidden={calculated_ffn_d_hidden}")
+        f"Initializing FTTransformer.make_baseline: n_num_features={n_actual_num_features}, cat_cardinalities={current_cat_cardinalities}, d_token={args.ft_d_token}, n_blocks={args.ft_n_blocks}, ffn_d_hidden={calculated_ffn_d_hidden}")
     try:
         model = rtdl.FTTransformer.make_baseline(
             n_num_features=n_actual_num_features,
-            cat_cardinalities=actual_cat_cardinalities if actual_cat_cardinalities else None,
+            cat_cardinalities=current_cat_cardinalities if current_cat_cardinalities else None,
+            # Pass None if empty list
             d_token=args.ft_d_token, n_blocks=args.ft_n_blocks,
             attention_dropout=args.ft_attention_dropout, ffn_d_hidden=calculated_ffn_d_hidden,
             ffn_dropout=args.ft_ffn_dropout, residual_dropout=args.ft_residual_dropout,
             d_out=1
         ).to(device)
-        logging.info(f"{MODEL_NAME} Architecture (rtdl.FTTransformer.make_baseline used).")
     except Exception as e:
-        logging.error(f"Failed to initialize FTTransformer: {e}. Check rtdl version and parameters.");
-        import traceback;
-        logging.error(traceback.format_exc());
-        return
+        logging.error(f"Failed to initialize FTTransformer: {e}"); import traceback; logging.error(
+            traceback.format_exc()); return
 
     criterion = nn.BCEWithLogitsLoss();
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -469,19 +489,21 @@ def main(args):
     epochs_no_improve = 0;
     best_model_state = None;
     best_epoch = 0
-    all_epoch_train_losses = [];
-    all_epoch_val_losses = [];
-    all_epoch_val_aucpr = []
+    all_epoch_train_losses, all_epoch_val_losses, all_epoch_val_aucpr = [], [], []
 
     for epoch in range(1, args.epochs + 1):
         logging.info(f"--- Epoch {epoch}/{args.epochs} ---")
         epoch_train_loss, duration = train_epoch_ft(model, train_loader, criterion, optimizer, device, epoch)
         total_train_time += duration;
         all_epoch_train_losses.append(epoch_train_loss)
-        epoch_val_loss, val_metrics_epoch, _, _, _ = evaluate_model_ft(model, val_loader, criterion, device,
-                                                                       dataset_name="Validation (Epoch End)")
+
+        epoch_val_loss, val_metrics_epoch, _, _, _ = evaluate_model_ft(
+            model, val_loader, criterion, device, dataset_name="Validation (Epoch End)",
+            actual_cat_cardinalities_for_debug=current_cat_cardinalities
+        )
         all_epoch_val_losses.append(epoch_val_loss);
         all_epoch_val_aucpr.append(val_metrics_epoch.get('pr_auc', 0.0))
+
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss;
             best_model_state = copy.deepcopy(model.state_dict());
@@ -503,29 +525,33 @@ def main(args):
 
     # 5. Evaluate on Test Set
     logging.info("Evaluating best model on Test set...")
-    _, test_metrics, test_cm, test_y_true_np, test_y_pred_proba_np = evaluate_model_ft(model, test_loader, criterion,
-                                                                                       device, dataset_name="Test Set")
+    _, test_metrics, test_cm, test_y_true_np, test_y_pred_proba_np = evaluate_model_ft(
+        model, test_loader, criterion, device, dataset_name="Test Set",
+        actual_cat_cardinalities_for_debug=current_cat_cardinalities  # Pass cardinalities for debugging
+    )
     plot_evaluation_charts_torch(test_y_true_np, test_y_pred_proba_np, test_cm, "Test", MODEL_NAME, GCS_BUCKET,
                                  GCS_OUTPUT_PREFIX)
 
     best_val_metrics_dict = {}
-    if best_epoch > 0:  # If early stopping did save a best model
-        _, best_val_metrics_dict, _, _, _ = evaluate_model_ft(model, val_loader, criterion, device,
-                                                              dataset_name="Best Validation Epoch")
+    if best_epoch > 0:
+        _, best_val_metrics_dict, _, _, _ = evaluate_model_ft(
+            model, val_loader, criterion, device, dataset_name="Best Validation Epoch",
+            actual_cat_cardinalities_for_debug=current_cat_cardinalities
+        )
 
-    # 6. Perform SHAP Analysis (KernelExplainer for numerical, if present)
+    # 6. Perform SHAP Analysis
     shap_feature_importance = None
-    if args.run_shap and num_feat_names:  # Only run SHAP if there are numerical features
-        # Create a simple dataloader for X_test_num_np for SHAP KernelExplainer to iterate through easily
-        # This loader just yields batches of the numpy array
-        class SimpleNumPyLoader:
+    if args.run_shap and num_feat_names:
+        class SimpleNumPyLoader:  # Helper for SHAP KernelExplainer
             def __init__(self, data_np, batch_size):
-                self.data_np, self.batch_size = data_np, batch_size; self.n_samples = data_np.shape[0]
+                self.data_np, self.batch_size = data_np, batch_size; self.n_samples = data_np.shape[
+                    0] if data_np.ndim > 1 and data_np.shape[0] > 0 else 0
 
             def __iter__(self):
                 self.current_idx = 0; return self
 
             def __next__(self):
+                if self.n_samples == 0: raise StopIteration  # Handle empty data
                 if self.current_idx < self.n_samples:
                     end_idx = min(self.current_idx + self.batch_size, self.n_samples)
                     batch = self.data_np[self.current_idx:end_idx];
@@ -535,21 +561,18 @@ def main(args):
                     raise StopIteration
 
             def __len__(self):
-                return (self.n_samples + self.batch_size - 1) // self.batch_size
+                return (self.n_samples + self.batch_size - 1) // self.batch_size if self.n_samples > 0 else 0
 
-        shap_test_loader_num_only = SimpleNumPyLoader(X_test_num_np, args.batch_size)  # Use test numerical data
-        # Prepare fixed categorical background tensor (from training data)
+        shap_test_loader_num_only = SimpleNumPyLoader(X_test_num_np, args.batch_size)
         fixed_cat_bg_tensor = torch.tensor(X_train_cat_np, dtype=torch.int64) if X_train_cat_np.shape[1] > 0 else None
-
         _, shap_feature_importance = perform_shap_analysis_ft_kernel(
-            model, train_loader, shap_test_loader_num_only,
-            num_feat_names, fixed_cat_bg_tensor, device,
+            model, train_loader, shap_test_loader_num_only, num_feat_names, fixed_cat_bg_tensor, device,
             GCS_BUCKET, GCS_OUTPUT_PREFIX,
-            sample_size=args.shap_background_sample_size,
+            background_sample_size=args.shap_background_sample_size,
             explain_sample_size=args.shap_explain_sample_size
         )
     elif args.run_shap and not num_feat_names:
-        logging.warning("SHAP analysis skipped: No numerical features to analyze with the current SHAP setup.")
+        logging.warning("SHAP skipped: No numerical features.")
     else:
         logging.info("SHAP analysis skipped by user.")
 
@@ -561,11 +584,12 @@ def main(args):
         save_model_to_gcs(model.state_dict(), GCS_BUCKET, model_blob_name)
 
     # 8. Save Logs and Metrics
+    # (Identical logging structure to MLP script)
     logging.info("Saving final logs and metrics...")
     log_summary = {
         "model_type": MODEL_NAME, "script_args": vars(args), "device_used": str(device),
         "metadata_source": METADATA_URI, "n_numerical_features": n_actual_num_features,
-        "categorical_cardinalities": actual_cat_cardinalities,
+        "categorical_cardinalities": current_cat_cardinalities,
         "training_total_duration_seconds": total_train_time,
         "epoch_training_losses": all_epoch_train_losses, "epoch_validation_losses": all_epoch_val_losses,
         "epoch_validation_aucpr": all_epoch_val_aucpr, "best_epoch_for_early_stopping": best_epoch,
@@ -601,18 +625,15 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", type=float, default=1e-5, help="AdamW weight decay.")
     parser.add_argument("--num-workers", type=int, default=2, help="DataLoader workers.")
     parser.add_argument("--early-stopping-patience", type=int, default=10, help="Patience for early stopping.")
-    # FT-Transformer Specific (match make_baseline and rtdl defaults where appropriate)
+    # FT-Transformer Specific Hyperparameters
     parser.add_argument("--ft-d-token", type=int, default=192,
                         help="Token dimension. Must be multiple of n_heads (default 8 for make_baseline).")
     parser.add_argument("--ft-n-blocks", type=int, default=3, help="Number of transformer blocks.")
-    # --ft-n-heads is not directly used by make_baseline (uses default 8), but d_token must be compatible.
-    # parser.add_argument("--ft-n-heads", type=int, default=8, help="Number of attention heads (info: make_baseline uses its own default).")
-    parser.add_argument("--ft-attention-dropout", type=float, default=0.2,
-                        help="Attention dropout rate.")  # Matched to rtdl example for n_blocks=3
-    parser.add_argument("--ft-ffn-dropout", type=float, default=0.1, help="FFN dropout rate.")  # Matched
+    parser.add_argument("--ft-attention-dropout", type=float, default=0.2, help="Attention dropout rate.")
+    parser.add_argument("--ft-ffn-dropout", type=float, default=0.1, help="FFN dropout rate.")
     parser.add_argument("--ft-residual-dropout", type=float, default=0.0, help="Residual dropout rate.")
     parser.add_argument("--ft-ffn-factor", type=float, default=4 / 3,
-                        help="Multiplier for FFN hidden dim relative to d_token (e.g., 4/3 for ReGLU).")
+                        help="Multiplier for FFN hidden dim relative to d_token.")
     # SHAP arguments
     parser.add_argument("--run-shap", action='store_true',
                         help="Run SHAP analysis (KernelExplainer, very slow, numerical only).")

@@ -244,6 +244,72 @@ def main(args):
         X_val_cat_indices = categorical_pipeline.transform(X_val_cat_df)
         X_test_cat_indices = categorical_pipeline.transform(X_test_cat_df)
 
+        if categorical_feature_names:  # Only if there are categorical features
+            datasets_to_clean = {
+                "validation_cat": X_val_cat_indices,
+                "test_cat": X_test_cat_indices
+                # We also re-ensure training data is clean before SMOTE,
+                # but the main concern here is val/test for the GPU error.
+                # Let's also add X_train_cat_indices before SMOTE for completeness.
+                # "train_cat_presmote": X_train_cat_indices # This is X_train_cat_np later
+            }
+            # The unknown_value used in OrdinalEncoder
+            unknown_marker_from_encoder = categorical_pipeline.named_steps['ordinal'].unknown_value  # Should be -999
+
+            for name, data_cat_indices_np_array in datasets_to_clean.items():
+                if data_cat_indices_np_array.size == 0 or data_cat_indices_np_array.shape[1] == 0:
+                    logging.info(f"Categorical data for '{name}' is empty. Skipping cleaning.")
+                    continue
+
+                logging.info(
+                    f"Cleaning categorical indices for '{name}' set (shape: {data_cat_indices_np_array.shape})...")
+                for i in range(data_cat_indices_np_array.shape[1]):  # Iterate through each categorical feature column
+                    if i >= len(cat_cardinalities_from_encoder):
+                        logging.error(
+                            f"Index {i} out of bounds for cat_cardinalities_from_encoder (len {len(cat_cardinalities_from_encoder)}) for set '{name}'. Skipping column.")
+                        continue
+
+                    max_valid_index = cat_cardinalities_from_encoder[i] - 1
+                    if max_valid_index < 0:  # Should not happen if cardinalities are correct
+                        logging.warning(
+                            f"Max valid index for cat feature {i} in '{name}' is < 0 ({max_valid_index}). Cardinality might be 0 or 1. Skipping clipping for this column.")
+                        if (data_cat_indices_np_array[:, i] != 0).any():
+                            logging.warning(
+                                f"   Values in column {i} of '{name}' are not all 0, but max_valid_index is {max_valid_index}. Setting to 0.")
+                            data_cat_indices_np_array[:, i] = 0  # Default to 0 if cardinality is problematic
+                        continue
+
+                    # Count and map the specific unknown_marker_from_encoder
+                    unknown_count = (data_cat_indices_np_array[:, i] == unknown_marker_from_encoder).sum()
+                    if unknown_count > 0:
+                        logging.warning(
+                            f"{unknown_count} instances of unknown_marker ({unknown_marker_from_encoder}) found in column {i} ('{categorical_feature_names[i]}') of '{name}'. Mapping to index 0.")
+                        data_cat_indices_np_array[data_cat_indices_np_array[:,
+                                                  i] == unknown_marker_from_encoder, i] = 0  # Map to first category (index 0)
+
+                    # Check for any other negative values (besides the specific unknown_marker if it was negative)
+                    negative_values_present = (data_cat_indices_np_array[:, i] < 0).any()
+                    if negative_values_present:
+                        logging.warning(
+                            f"Negative indices found in column {i} ('{categorical_feature_names[i]}') of '{name}' AFTER handling specific unknown_marker. Mapping them to 0.")
+                        data_cat_indices_np_array[data_cat_indices_np_array[:, i] < 0, i] = 0
+
+                    # Clip to ensure all values are within [0, max_valid_index]
+                    original_min_val = data_cat_indices_np_array[:, i].min()
+                    original_max_val = data_cat_indices_np_array[:, i].max()
+
+                    data_cat_indices_np_array[:, i] = np.clip(data_cat_indices_np_array[:, i], 0, max_valid_index)
+
+                    if original_min_val < 0 or original_max_val > max_valid_index:
+                        logging.warning(
+                            f"Column {i} ('{categorical_feature_names[i]}') of '{name}' had/has out-of-bound indices. Original min/max: {original_min_val}/{original_max_val}. Post-clip min/max: {data_cat_indices_np_array[:, i].min()}/{data_cat_indices_np_array[:, i].max()}. Max valid index: {max_valid_index}.")
+
+            # Reassign back if they were modified (numpy arrays are mutable, so modification might be in-place)
+            X_val_cat_indices = datasets_to_clean["validation_cat"]
+            X_test_cat_indices = datasets_to_clean["test_cat"]
+            # If you also cleaned X_train_cat_indices here, reassign it too if it was a copy.
+            # X_train_cat_indices = datasets_to_clean["train_cat_presmote"]
+
         ordinal_encoder_fitted = categorical_pipeline.named_steps['ordinal']
         cat_cardinalities_from_encoder = [len(cats) for cats in ordinal_encoder_fitted.categories_]
         for i, feature in enumerate(categorical_feature_names):
