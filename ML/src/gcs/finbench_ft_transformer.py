@@ -42,7 +42,6 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=N
                 f"No data path provided and no columns expected (e.g., no numerical features). Returning empty DataFrame.")
             return pd.DataFrame()
         else:
-            # This case means a path was expected (because expected_columns_list is not empty or None) but not provided.
             logging.error(f"GCS path is None but columns were expected: {expected_columns_list}")
             raise ValueError(f"GCS path is None but columns were expected for features: {expected_columns_list}")
 
@@ -59,9 +58,13 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=N
 
         logging.info(f"Data loaded from gs://{gcs_bucket}/{blob_name}. Shape: {df.shape}")
         if expected_columns_list is not None and not df.empty:
-            if list(df.columns) != expected_columns_list:
+            # We expect the preprocessor to have saved files with correct columns.
+            # If column names were not saved or differ, this might be an issue.
+            # For now, we assume the order and number of columns are correct as per preprocessing.
+            if len(df.columns) != len(expected_columns_list) and expected_columns_list:
                 logging.warning(
-                    f"Column mismatch for {blob_name}. Expected: {expected_columns_list}, Got: {list(df.columns)}. Using loaded column names.")
+                    f"Column count mismatch for {blob_name}. Loaded: {len(df.columns)}, Expected: {len(expected_columns_list)}. This might cause issues if names are critical downstream.")
+            # We won't rename here, assuming the preprocessor saved them as needed.
         elif expected_columns_list and df.empty and len(expected_columns_list) > 0:
             logging.warning(f"Loaded empty DataFrame from {blob_name} but expected columns: {expected_columns_list}")
         return df
@@ -100,22 +103,15 @@ class TabularDataset(Dataset):
         self.Y = torch.tensor(Y_np, dtype=torch.int64)
         self.has_num = X_num_np.shape[1] > 0 if X_num_np.ndim == 2 else False
         self.has_cat = X_cat_np.shape[1] > 0 if X_cat_np.ndim == 2 else False
-
-        # Validate sample counts
         n_samples_y = Y_np.shape[0]
-        if self.has_num and X_num_np.shape[0] != n_samples_y:
-            raise ValueError(f"Mismatch in num samples: X_num ({X_num_np.shape[0]}) vs Y ({n_samples_y})")
-        if self.has_cat and X_cat_np.shape[0] != n_samples_y:
-            raise ValueError(f"Mismatch in num samples: X_cat ({X_cat_np.shape[0]}) vs Y ({n_samples_y})")
-        if not self.has_num and not self.has_cat and n_samples_y > 0:  # Only Y exists
-            pass  # This is unusual but technically possible if model handles it
-        elif not self.has_num and not self.has_cat and n_samples_y == 0:  # All empty
-            pass  # Allow empty dataset
-        elif (self.has_num and X_num_np.shape[0] == 0) or \
-                (self.has_cat and X_cat_np.shape[0] == 0) or \
-                Y_np.shape[0] == 0:
-            if not (X_num_np.shape[0] == X_cat_np.shape[0] == Y_np.shape[0]):  # if all are 0, it's fine
-                raise ValueError("One feature set is empty while others are not, or target is empty.")
+        if self.has_num and X_num_np.shape[0] != n_samples_y: raise ValueError(
+            f"Mismatch samples: X_num ({X_num_np.shape[0]}) vs Y ({n_samples_y})")
+        if self.has_cat and X_cat_np.shape[0] != n_samples_y: raise ValueError(
+            f"Mismatch samples: X_cat ({X_cat_np.shape[0]}) vs Y ({n_samples_y})")
+        if not (X_num_np.shape[0] == (X_cat_np.shape[0] if self.has_cat else X_num_np.shape[0]) == Y_np.shape[0]):
+            if not (n_samples_y == 0 and (not self.has_num or X_num_np.shape[0] == 0) and (
+                    not self.has_cat or X_cat_np.shape[0] == 0)):  # Allow all empty
+                raise ValueError("Sample count mismatch between X_num, X_cat, and Y, or one is unexpectedly empty.")
 
     def __len__(self):
         return len(self.Y)
@@ -142,7 +138,7 @@ def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
         optimizer.step()
         total_loss += loss.item()
         if (i + 1) % 200 == 0: logging.info(f'Epoch {epoch_num}, Batch {i + 1}/{len(loader)}, Loss: {loss.item():.4f}')
-    avg_loss = total_loss / len(loader)
+    avg_loss = total_loss / len(loader);
     epoch_duration = time.time() - start_time
     logging.info(f'Epoch {epoch_num} Train Summary: Avg Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f}s')
     return avg_loss, epoch_duration
@@ -152,9 +148,7 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
                       actual_cat_cardinalities_for_debug=None, cat_feat_names_for_debug=None):
     model.eval();
     total_loss = 0.0;
-    all_preds_np = [];
-    all_targets_np = [];
-    all_probs_np = []
+    all_preds_np, all_targets_np, all_probs_np = [], [], []
     metrics_collection = torchmetrics.MetricCollection({
         'accuracy': torchmetrics.Accuracy(task="binary"), 'precision': torchmetrics.Precision(task="binary"),
         'recall': torchmetrics.Recall(task="binary"), 'f1': torchmetrics.F1Score(task="binary"),
@@ -167,27 +161,61 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
             targets_float = targets_dev.float().unsqueeze(1);
             targets_int = targets_dev.int()
 
+            # --- SAFEGUARD & DEBUG BLOCK for x_cat ---
             if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 and actual_cat_cardinalities_for_debug is not None:
-                if dataset_name == "Test Set" or (
-                        dataset_name == "Validation (Epoch End)" and batch_idx < 1):  # Log first batch of val, all of test
+                # Create a mutable copy for potential in-place modification
+                x_cat_dev_cleaned = x_cat_dev.clone()
+                for i in range(x_cat_dev_cleaned.shape[1]):
+                    col_data = x_cat_dev_cleaned[:, i]
+                    cardinality = actual_cat_cardinalities_for_debug[i]
+                    max_valid_index = cardinality - 1
+
+                    # Log original min/max for this batch column
+                    original_col_min = col_data.min().item()
+                    original_col_max = col_data.max().item()
+
+                    # Safeguard: Map any negative indices to 0
+                    negative_mask = col_data < 0
+                    if negative_mask.any():
+                        feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
+                            cat_feat_names_for_debug) else f"Col_{i}"
+                        logging.warning(
+                            f"SAFEGUARD: Negative indices found in {dataset_name} Batch {batch_idx}, Cat Col {i} ('{feat_name}'). Min: {original_col_min}. Mapping to 0.")
+                        x_cat_dev_cleaned[:, i][negative_mask] = 0
+
+                    # Safeguard: Clip to max_valid_index
+                    too_large_mask = x_cat_dev_cleaned[:, i] > max_valid_index
+                    if too_large_mask.any():
+                        feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
+                            cat_feat_names_for_debug) else f"Col_{i}"
+                        logging.warning(
+                            f"SAFEGUARD: Indices >= cardinality found in {dataset_name} Batch {batch_idx}, Cat Col {i} ('{feat_name}'). Max: {original_col_max}, Cardinality: {cardinality}. Clipping to {max_valid_index}.")
+                        x_cat_dev_cleaned[:, i][too_large_mask] = max_valid_index
+
+                current_x_cat = x_cat_dev_cleaned  # Use the cleaned tensor
+
+                # Debug log (can be made less frequent if too verbose)
+                if dataset_name == "Test Set" or (dataset_name == "Validation (Epoch End)" and batch_idx < 1):
                     logging.info(
-                        f"DEBUG EVAL: {dataset_name} Batch {batch_idx}, x_cat_dev on device {x_cat_dev.device}, shape: {x_cat_dev.shape}")
-                    for i in range(x_cat_dev.shape[1]):
-                        col_data = x_cat_dev[:, i]
-                        col_min = col_data.min().item();
-                        col_max = col_data.max().item()
+                        f"DEBUG EVAL: {dataset_name} Batch {batch_idx}, x_cat (cleaned) on device {current_x_cat.device}, shape: {current_x_cat.shape}")
+                    for i in range(current_x_cat.shape[1]):
+                        col_data_cleaned = current_x_cat[:, i]
+                        col_min_cleaned = col_data_cleaned.min().item();
+                        col_max_cleaned = col_data_cleaned.max().item()
                         cardinality = actual_cat_cardinalities_for_debug[i]
                         feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
                             cat_feat_names_for_debug) else f"Col_{i}"
                         logging.info(
-                            f"  DEBUG EVAL Cat Col {i} ('{feat_name}'): Min Index={col_min}, Max Index={col_max} -- Model Cardinality: {cardinality}")
-                        if col_min < 0: logging.error(
-                            f"    FATAL DEBUG EVAL: Negative index {col_min} in x_cat_dev col {i} ('{feat_name}')!")
-                        if col_max >= cardinality: logging.error(
-                            f"    FATAL DEBUG EVAL: Index {col_max} >= Cardinality {cardinality} in x_cat_dev col {i} ('{feat_name}')! Max valid: {cardinality - 1}.")
+                            f"  DEBUG EVAL Cat Col {i} ('{feat_name}'): Min Index (cleaned)={col_min_cleaned}, Max Index (cleaned)={col_max_cleaned} -- Model Cardinality: {cardinality}")
+                        if col_min_cleaned < 0: logging.error(
+                            f"    FATAL DEBUG EVAL (POST-CLEAN): Negative index {col_min_cleaned} in x_cat col {i} ('{feat_name}')!")
+                        if col_max_cleaned >= cardinality: logging.error(
+                            f"    FATAL DEBUG EVAL (POST-CLEAN): Index {col_max_cleaned} >= Cardinality {cardinality} in x_cat col {i} ('{feat_name}')!")
+            else:  # No categorical features or no cardinalities for debug
+                current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
+            # --- END SAFEGUARD & DEBUG BLOCK ---
 
             current_x_num = x_num_dev if x_num_dev.numel() > 0 and x_num_dev.shape[-1] > 0 else None
-            current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
             outputs_logits = model(current_x_num, current_x_cat)
             loss = criterion(outputs_logits, targets_float);
             total_loss += loss.item()
@@ -261,7 +289,7 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
         bg_num_list = []
         count = 0
         for x_num, _, _ in train_loader:
-            if x_num.shape[1] == 0: continue  # Skip if no numerical features in this batch
+            if x_num.shape[1] == 0: continue
             batch_size = x_num.shape[0];
             needed = background_sample_size - count;
             take = min(needed, batch_size)
@@ -277,7 +305,7 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
 
         explain_num_list = []
         count = 0
-        for x_num_batch_np in test_loader_num_only:  # This loader yields numpy arrays
+        for x_num_batch_np in test_loader_num_only:
             if x_num_batch_np.shape[1] == 0: continue
             current_batch_size = x_num_batch_np.shape[0];
             needed = explain_sample_size - count;
@@ -393,7 +421,7 @@ def main(args):
                     p_name.endswith("_cat") and not cat_feat_names)):
                 raise ValueError(
                     f"Path for {p_name} is None/missing in metadata, but features of this type are expected.")
-            elif paths.get(p_name) == "":  # Path is an empty string
+            elif paths.get(p_name) == "":
                 raise ValueError(f"Required data path for '{p_name}' is an empty string in FT metadata.")
     except Exception as e:
         logging.error(f"Failed loading/parsing FT metadata: {e}"); import traceback; logging.error(
@@ -420,10 +448,8 @@ def main(args):
         y_val_df = load_data_from_gcs(GCS_BUCKET, paths["y_val"]);
         y_test_df = load_data_from_gcs(GCS_BUCKET, paths["y_test"])
 
-        # Ensure y_df is not None before accessing .iloc
-        if y_train_df is None or y_val_df is None or y_test_df is None:
-            logging.error("Target data (y_train, y_val, or y_test) failed to load.");
-            return
+        if y_train_df is None or y_val_df is None or y_test_df is None: logging.error(
+            "Target data failed to load."); return
 
         X_train_num_np = X_train_num_df.values.astype(np.float32) if not X_train_num_df.empty else np.empty(
             (len(y_train_df), 0), dtype=np.float32)
@@ -443,13 +469,13 @@ def main(args):
             (len(y_test_df), 0), dtype=np.int64)
         y_test_np = y_test_df.iloc[:, 0].values.astype(np.int64)
 
-        # --- ADDED: Pre-Dataset Creation Debugging for Test Categorical Data ---
-        if cat_feat_names and not X_test_cat_df.empty:  # Only if categorical features exist and data loaded
+        # --- Pre-Dataset Creation Debugging for Test Categorical Data ---
+        if cat_feat_names and not X_test_cat_df.empty:
             logging.info(f"DEBUG MAIN: X_test_cat_np loaded. Shape: {X_test_cat_np.shape}")
             logging.info(f"DEBUG MAIN: Cardinalities for model: {actual_cat_cardinalities}")
             for i in range(X_test_cat_np.shape[1]):
                 col_data = X_test_cat_np[:, i]
-                col_min = col_data.min()
+                col_min = col_data.min();
                 col_max = col_data.max()
                 cardinality = actual_cat_cardinalities[i]
                 feat_name = cat_feat_names[i]
@@ -459,7 +485,7 @@ def main(args):
                     f"    FATAL DEBUG MAIN: Negative index {col_min} in X_test_cat_np col {i} ('{feat_name}')!")
                 if col_max >= cardinality: logging.error(
                     f"    FATAL DEBUG MAIN: Index {col_max} >= Cardinality {cardinality} in X_test_cat_np col {i} ('{feat_name}')! Max valid: {cardinality - 1}.")
-        # --- END ADDED DEBUGGING ---
+        # --- END Pre-Dataset Creation Debugging ---
 
         train_dataset = TabularDataset(X_train_num_np, X_train_cat_np, y_train_np)
         val_dataset = TabularDataset(X_val_num_np, X_val_cat_np, y_val_np)
@@ -545,7 +571,7 @@ def main(args):
     logging.info("Evaluating best model on Test set...")
     _, test_metrics, test_cm, test_y_true_np, test_y_pred_proba_np = evaluate_model_ft(
         model, test_loader, criterion, device, dataset_name="Test Set",
-        actual_cat_cardinalities_for_debug=current_cat_cardinalities,  # Pass cardinalities for debugging
+        actual_cat_cardinalities_for_debug=current_cat_cardinalities,
         cat_feat_names_for_debug=cat_feat_names
     )
     plot_evaluation_charts_torch(test_y_true_np, test_y_pred_proba_np, test_cm, "Test", MODEL_NAME, GCS_BUCKET,
@@ -561,7 +587,7 @@ def main(args):
 
     # 6. Perform SHAP Analysis
     shap_feature_importance = None
-    if args.run_shap and num_feat_names:  # Only run if numerical features exist
+    if args.run_shap and num_feat_names:
         class SimpleNumPyLoader:
             def __init__(self, data_np, batch_size):
                 self.data_np, self.batch_size = data_np, batch_size; self.n_samples = data_np.shape[
