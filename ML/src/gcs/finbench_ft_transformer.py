@@ -42,8 +42,9 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=N
                 f"No data path provided and no columns expected (e.g., no numerical features). Returning empty DataFrame.")
             return pd.DataFrame()
         else:
+            # This case means a path was expected (because expected_columns_list is not empty or None) but not provided.
             logging.error(f"GCS path is None but columns were expected: {expected_columns_list}")
-            raise ValueError("GCS path is None but columns were expected.")
+            raise ValueError(f"GCS path is None but columns were expected for features: {expected_columns_list}")
 
     if not gcs_path_in_metadata.startswith(f"gs://{gcs_bucket}/"):
         logging.error(f"Invalid GCS path format: {gcs_path_in_metadata} for bucket {gcs_bucket}")
@@ -57,14 +58,12 @@ def load_data_from_gcs(gcs_bucket, gcs_path_in_metadata, expected_columns_list=N
         df = pd.read_csv(BytesIO(data_bytes))
 
         logging.info(f"Data loaded from gs://{gcs_bucket}/{blob_name}. Shape: {df.shape}")
-        # Optional: Validate columns if expected_columns_list is provided and df is not empty
         if expected_columns_list is not None and not df.empty:
             if list(df.columns) != expected_columns_list:
                 logging.warning(
-                    f"Column mismatch for {blob_name}. Expected: {expected_columns_list}, Got: {list(df.columns)}. This might be okay if order differs but names are present for selection later, or if preprocessor handled naming.")
-        elif expected_columns_list and df.empty and expected_columns_list:  # Expected columns but got empty df
+                    f"Column mismatch for {blob_name}. Expected: {expected_columns_list}, Got: {list(df.columns)}. Using loaded column names.")
+        elif expected_columns_list and df.empty and len(expected_columns_list) > 0:
             logging.warning(f"Loaded empty DataFrame from {blob_name} but expected columns: {expected_columns_list}")
-
         return df
     except Exception as e:
         logging.error(f"Error loading data from gs://{gcs_bucket}/{blob_name}: {e}"); raise
@@ -94,16 +93,29 @@ def save_model_to_gcs(model_state_dict, gcs_bucket, gcs_blob_name):
         logging.error(f"ERROR saving model state_dict to GCS ({gcs_blob_name}): {e}")
 
 
-# --- PyTorch Dataset Definition for FT-Transformer ---
 class TabularDataset(Dataset):
     def __init__(self, X_num_np, X_cat_np, Y_np):
         self.X_num = torch.tensor(X_num_np, dtype=torch.float32)
-        self.X_cat = torch.tensor(X_cat_np, dtype=torch.int64)  # Categorical indices MUST be long integers
+        self.X_cat = torch.tensor(X_cat_np, dtype=torch.int64)
         self.Y = torch.tensor(Y_np, dtype=torch.int64)
-        self.has_num = X_num_np.shape[1] > 0
-        self.has_cat = X_cat_np.shape[1] > 0
-        if X_num_np.shape[0] != Y_np.shape[0] or (self.has_cat and X_cat_np.shape[0] != Y_np.shape[0]):
-            raise ValueError("Mismatch in number of samples between features and target.")
+        self.has_num = X_num_np.shape[1] > 0 if X_num_np.ndim == 2 else False
+        self.has_cat = X_cat_np.shape[1] > 0 if X_cat_np.ndim == 2 else False
+
+        # Validate sample counts
+        n_samples_y = Y_np.shape[0]
+        if self.has_num and X_num_np.shape[0] != n_samples_y:
+            raise ValueError(f"Mismatch in num samples: X_num ({X_num_np.shape[0]}) vs Y ({n_samples_y})")
+        if self.has_cat and X_cat_np.shape[0] != n_samples_y:
+            raise ValueError(f"Mismatch in num samples: X_cat ({X_cat_np.shape[0]}) vs Y ({n_samples_y})")
+        if not self.has_num and not self.has_cat and n_samples_y > 0:  # Only Y exists
+            pass  # This is unusual but technically possible if model handles it
+        elif not self.has_num and not self.has_cat and n_samples_y == 0:  # All empty
+            pass  # Allow empty dataset
+        elif (self.has_num and X_num_np.shape[0] == 0) or \
+                (self.has_cat and X_cat_np.shape[0] == 0) or \
+                Y_np.shape[0] == 0:
+            if not (X_num_np.shape[0] == X_cat_np.shape[0] == Y_np.shape[0]):  # if all are 0, it's fine
+                raise ValueError("One feature set is empty while others are not, or target is empty.")
 
     def __len__(self):
         return len(self.Y)
@@ -114,7 +126,6 @@ class TabularDataset(Dataset):
         return x_num_item, x_cat_item, self.Y[idx]
 
 
-# --- Training & Evaluation Functions ---
 def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
     model.train();
     total_loss = 0.0;
@@ -134,11 +145,11 @@ def train_epoch_ft(model, loader, criterion, optimizer, device, epoch_num):
     avg_loss = total_loss / len(loader)
     epoch_duration = time.time() - start_time
     logging.info(f'Epoch {epoch_num} Train Summary: Avg Loss: {avg_loss:.4f}, Duration: {epoch_duration:.2f}s')
-    return avg_loss, epoch_duration  # Ensure two values are returned
+    return avg_loss, epoch_duration
 
 
 def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation",
-                      actual_cat_cardinalities_for_debug=None):
+                      actual_cat_cardinalities_for_debug=None, cat_feat_names_for_debug=None):
     model.eval();
     total_loss = 0.0;
     all_preds_np = [];
@@ -156,31 +167,30 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
             targets_float = targets_dev.float().unsqueeze(1);
             targets_int = targets_dev.int()
 
-            # --- DETAILED DEBUG BLOCK for x_cat ---
             if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 and actual_cat_cardinalities_for_debug is not None:
-                # Only log extensively for test set or first few batches of validation for brevity
-                if dataset_name == "Test Set" or (dataset_name == "Validation (Epoch End)" and batch_idx < 2):
-                    logging.debug(f"DEBUG: {dataset_name} Batch {batch_idx}, x_cat_dev shape: {x_cat_dev.shape}")
+                if dataset_name == "Test Set" or (
+                        dataset_name == "Validation (Epoch End)" and batch_idx < 1):  # Log first batch of val, all of test
+                    logging.info(
+                        f"DEBUG EVAL: {dataset_name} Batch {batch_idx}, x_cat_dev on device {x_cat_dev.device}, shape: {x_cat_dev.shape}")
                     for i in range(x_cat_dev.shape[1]):
                         col_data = x_cat_dev[:, i]
                         col_min = col_data.min().item();
                         col_max = col_data.max().item()
                         cardinality = actual_cat_cardinalities_for_debug[i]
-                        logging.debug(
-                            f"  Cat Col {i}: Min Index={col_min}, Max Index={col_max} -- Cardinality for Emb: {cardinality}")
+                        feat_name = cat_feat_names_for_debug[i] if cat_feat_names_for_debug and i < len(
+                            cat_feat_names_for_debug) else f"Col_{i}"
+                        logging.info(
+                            f"  DEBUG EVAL Cat Col {i} ('{feat_name}'): Min Index={col_min}, Max Index={col_max} -- Model Cardinality: {cardinality}")
                         if col_min < 0: logging.error(
-                            f"    FATAL_DEBUG: Negative index {col_min} in x_cat_dev col {i}!")
+                            f"    FATAL DEBUG EVAL: Negative index {col_min} in x_cat_dev col {i} ('{feat_name}')!")
                         if col_max >= cardinality: logging.error(
-                            f"    FATAL_DEBUG: Index {col_max} >= Cardinality {cardinality} in x_cat_dev col {i}! Max valid: {cardinality - 1}.")
-            # --- END DETAILED DEBUG BLOCK ---
+                            f"    FATAL DEBUG EVAL: Index {col_max} >= Cardinality {cardinality} in x_cat_dev col {i} ('{feat_name}')! Max valid: {cardinality - 1}.")
 
             current_x_num = x_num_dev if x_num_dev.numel() > 0 and x_num_dev.shape[-1] > 0 else None
             current_x_cat = x_cat_dev if x_cat_dev.numel() > 0 and x_cat_dev.shape[-1] > 0 else None
-
-            outputs_logits = model(current_x_num, current_x_cat)  # Error likely originates here
-            loss = criterion(outputs_logits, targets_float)
-            total_loss += loss.item()  # Error often reported here due to async CUDA
-
+            outputs_logits = model(current_x_num, current_x_cat)
+            loss = criterion(outputs_logits, targets_float);
+            total_loss += loss.item()
             outputs_probs = torch.sigmoid(outputs_logits).squeeze()
             metrics_collection.update(outputs_probs, targets_int)
             all_probs_np.append(outputs_probs.cpu().numpy());
@@ -190,15 +200,12 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
     avg_loss = total_loss / len(loader);
     final_metrics_tensors = metrics_collection.compute()
     final_metrics = {k: v.item() for k, v in final_metrics_tensors.items()}
-    all_preds_np = np.concatenate(all_preds_np) if all_preds_np else np.array([])
-    all_targets_np = np.concatenate(all_targets_np) if all_targets_np else np.array([])
-    all_probs_np = np.concatenate(all_probs_np) if all_probs_np else np.array([])
-
-    cm = np.zeros((2, 2), dtype=int)  # Default empty CM
-    if all_targets_np.size > 0 and all_preds_np.size > 0:  # Ensure not empty before CM
-        cm = confusion_matrix(all_targets_np, all_preds_np)
+    all_preds_np = np.concatenate(all_preds_np) if len(all_preds_np) > 0 else np.array([])
+    all_targets_np = np.concatenate(all_targets_np) if len(all_targets_np) > 0 else np.array([])
+    all_probs_np = np.concatenate(all_probs_np) if len(all_probs_np) > 0 else np.array([])
+    cm = np.zeros((2, 2), dtype=int)
+    if all_targets_np.size > 0 and all_preds_np.size > 0: cm = confusion_matrix(all_targets_np, all_preds_np)
     final_metrics["confusion_matrix"] = cm.tolist()
-
     logging.info(f"--- {dataset_name} Evaluation ---");
     logging.info(f"Avg Loss: {avg_loss:.4f}")
     for name, value in final_metrics.items():
@@ -209,7 +216,7 @@ def evaluate_model_ft(model, loader, criterion, device, dataset_name="Validation
 
 def plot_evaluation_charts_torch(y_true_np, y_pred_proba_np, cm, plot_suffix, model_display_name, gcs_bucket,
                                  gcs_output_prefix):
-    # (Identical to mlp_finbench_cf2.py)
+    # (Identical to previous versions)
     try:
         fig_cm, ax_cm = plt.subplots(figsize=(6, 5));
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, cbar=False)
@@ -248,20 +255,17 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
                                     background_sample_size=50, explain_sample_size=10):
     # (Identical to previous version with KernelExplainer for numerical features)
     logging.warning(f"--- SHAP Analysis ({MODEL_NAME} - KernelExplainer on Numerical Features) ---")
-    logging.warning(
-        f"KernelExplainer is VERY SLOW. Background: {background_sample_size}, Explain: {explain_sample_size} samples.")
-    if not numerical_feature_names:  # Check if there are numerical features
-        logging.warning("No numerical features to explain with SHAP. Skipping SHAP analysis.")
-        return None, None
+    if not numerical_feature_names: logging.warning("No numerical features. Skipping SHAP."); return None, None
     try:
         model.eval()
         bg_num_list = []
         count = 0
         for x_num, _, _ in train_loader:
+            if x_num.shape[1] == 0: continue  # Skip if no numerical features in this batch
             batch_size = x_num.shape[0];
             needed = background_sample_size - count;
             take = min(needed, batch_size)
-            if needed <= 0 or x_num.shape[1] == 0: break  # Stop if enough samples or no num features in batch
+            if needed <= 0: break
             bg_num_list.append(x_num[:take].cpu().numpy());
             count += take
         if not bg_num_list: raise ValueError("Could not get numerical background samples for SHAP masker.")
@@ -273,7 +277,8 @@ def perform_shap_analysis_ft_kernel(model, train_loader, test_loader_num_only,
 
         explain_num_list = []
         count = 0
-        for x_num_batch_np in test_loader_num_only:
+        for x_num_batch_np in test_loader_num_only:  # This loader yields numpy arrays
+            if x_num_batch_np.shape[1] == 0: continue
             current_batch_size = x_num_batch_np.shape[0];
             needed = explain_sample_size - count;
             take = min(needed, current_batch_size)
@@ -365,12 +370,11 @@ def main(args):
 
         num_feat_names = metadata.get("original_numerical_features", [])
         cat_feat_names = metadata.get("original_categorical_features", [])
-        # Use cardinalities derived from the encoder during preprocessing
         actual_cat_cardinalities = metadata.get("cat_feature_cardinalities_from_encoder")
         if cat_feat_names and actual_cat_cardinalities is None: raise ValueError(
-            "'cat_feature_cardinalities_from_encoder' missing in metadata when categorical features exist.")
+            "'cat_feature_cardinalities_from_encoder' missing.")
         if cat_feat_names and len(cat_feat_names) != len(actual_cat_cardinalities): raise ValueError(
-            "Mismatch between cat feature names and cardinalities count from encoder.")
+            "Mismatch cat_feat_names and cardinalities count.")
 
         data_paths = metadata.get("gcs_paths", {})
         paths = {
@@ -382,20 +386,15 @@ def main(args):
             "y_test": data_paths.get("y_test")
         }
         required_y_paths = ["y_train", "y_val", "y_test"]
-        # Check if paths are None (meaning feature type is absent) vs. empty string (meaning path is missing)
         if num_feat_names: required_y_paths.extend(["X_train_num", "X_val_num", "X_test_num"])
         if cat_feat_names: required_y_paths.extend(["X_train_cat", "X_val_cat", "X_test_cat"])
-
         for p_name in required_y_paths:
-            if paths.get(p_name) is None:  # Path explicitly None in metadata (e.g. no num features)
-                if (p_name.endswith("_num") and not num_feat_names) or \
-                        (p_name.endswith("_cat") and not cat_feat_names):
-                    logging.info(f"Path for {p_name} is None, consistent with absence of this feature type.")
-                else:  # Path is None but features of this type are expected
-                    raise ValueError(f"Path for {p_name} is None in metadata, but features of this type are expected.")
-            elif not paths.get(p_name):  # Path is an empty string or missing
-                raise ValueError(f"Required data path for '{p_name}' is missing or empty in FT metadata.")
-
+            if paths.get(p_name) is None and not ((p_name.endswith("_num") and not num_feat_names) or (
+                    p_name.endswith("_cat") and not cat_feat_names)):
+                raise ValueError(
+                    f"Path for {p_name} is None/missing in metadata, but features of this type are expected.")
+            elif paths.get(p_name) == "":  # Path is an empty string
+                raise ValueError(f"Required data path for '{p_name}' is an empty string in FT metadata.")
     except Exception as e:
         logging.error(f"Failed loading/parsing FT metadata: {e}"); import traceback; logging.error(
             traceback.format_exc()); return
@@ -421,6 +420,11 @@ def main(args):
         y_val_df = load_data_from_gcs(GCS_BUCKET, paths["y_val"]);
         y_test_df = load_data_from_gcs(GCS_BUCKET, paths["y_test"])
 
+        # Ensure y_df is not None before accessing .iloc
+        if y_train_df is None or y_val_df is None or y_test_df is None:
+            logging.error("Target data (y_train, y_val, or y_test) failed to load.");
+            return
+
         X_train_num_np = X_train_num_df.values.astype(np.float32) if not X_train_num_df.empty else np.empty(
             (len(y_train_df), 0), dtype=np.float32)
         X_train_cat_np = X_train_cat_df.values.astype(np.int64) if not X_train_cat_df.empty else np.empty(
@@ -439,9 +443,23 @@ def main(args):
             (len(y_test_df), 0), dtype=np.int64)
         y_test_np = y_test_df.iloc[:, 0].values.astype(np.int64)
 
-        logging.info(f"Train shapes: X_num={X_train_num_np.shape}, X_cat={X_train_cat_np.shape}, y={y_train_np.shape}")
-        logging.info(f"Val shapes: X_num={X_val_num_np.shape}, X_cat={X_val_cat_np.shape}, y={y_val_np.shape}")
-        logging.info(f"Test shapes: X_num={X_test_num_np.shape}, X_cat={X_test_cat_np.shape}, y={y_test_np.shape}")
+        # --- ADDED: Pre-Dataset Creation Debugging for Test Categorical Data ---
+        if cat_feat_names and not X_test_cat_df.empty:  # Only if categorical features exist and data loaded
+            logging.info(f"DEBUG MAIN: X_test_cat_np loaded. Shape: {X_test_cat_np.shape}")
+            logging.info(f"DEBUG MAIN: Cardinalities for model: {actual_cat_cardinalities}")
+            for i in range(X_test_cat_np.shape[1]):
+                col_data = X_test_cat_np[:, i]
+                col_min = col_data.min()
+                col_max = col_data.max()
+                cardinality = actual_cat_cardinalities[i]
+                feat_name = cat_feat_names[i]
+                logging.info(
+                    f"  DEBUG MAIN Cat Col {i} ('{feat_name}'): Min Index={col_min}, Max Index={col_max} -- Model Cardinality: {cardinality}")
+                if col_min < 0: logging.error(
+                    f"    FATAL DEBUG MAIN: Negative index {col_min} in X_test_cat_np col {i} ('{feat_name}')!")
+                if col_max >= cardinality: logging.error(
+                    f"    FATAL DEBUG MAIN: Index {col_max} >= Cardinality {cardinality} in X_test_cat_np col {i} ('{feat_name}')! Max valid: {cardinality - 1}.")
+        # --- END ADDED DEBUGGING ---
 
         train_dataset = TabularDataset(X_train_num_np, X_train_cat_np, y_train_np)
         val_dataset = TabularDataset(X_val_num_np, X_val_cat_np, y_val_np)
@@ -460,7 +478,7 @@ def main(args):
 
     # 3. Initialize Model
     n_actual_num_features = X_train_num_np.shape[1]
-    current_cat_cardinalities = actual_cat_cardinalities if cat_feat_names else []  # Use [] if no cat features
+    current_cat_cardinalities = actual_cat_cardinalities if cat_feat_names else []
 
     calculated_ffn_d_hidden = int(args.ft_d_token * args.ft_ffn_factor)
     logging.info(
@@ -469,7 +487,6 @@ def main(args):
         model = rtdl.FTTransformer.make_baseline(
             n_num_features=n_actual_num_features,
             cat_cardinalities=current_cat_cardinalities if current_cat_cardinalities else None,
-            # Pass None if empty list
             d_token=args.ft_d_token, n_blocks=args.ft_n_blocks,
             attention_dropout=args.ft_attention_dropout, ffn_d_hidden=calculated_ffn_d_hidden,
             ffn_dropout=args.ft_ffn_dropout, residual_dropout=args.ft_residual_dropout,
@@ -499,7 +516,8 @@ def main(args):
 
         epoch_val_loss, val_metrics_epoch, _, _, _ = evaluate_model_ft(
             model, val_loader, criterion, device, dataset_name="Validation (Epoch End)",
-            actual_cat_cardinalities_for_debug=current_cat_cardinalities
+            actual_cat_cardinalities_for_debug=current_cat_cardinalities,
+            cat_feat_names_for_debug=cat_feat_names
         )
         all_epoch_val_losses.append(epoch_val_loss);
         all_epoch_val_aucpr.append(val_metrics_epoch.get('pr_auc', 0.0))
@@ -527,7 +545,8 @@ def main(args):
     logging.info("Evaluating best model on Test set...")
     _, test_metrics, test_cm, test_y_true_np, test_y_pred_proba_np = evaluate_model_ft(
         model, test_loader, criterion, device, dataset_name="Test Set",
-        actual_cat_cardinalities_for_debug=current_cat_cardinalities  # Pass cardinalities for debugging
+        actual_cat_cardinalities_for_debug=current_cat_cardinalities,  # Pass cardinalities for debugging
+        cat_feat_names_for_debug=cat_feat_names
     )
     plot_evaluation_charts_torch(test_y_true_np, test_y_pred_proba_np, test_cm, "Test", MODEL_NAME, GCS_BUCKET,
                                  GCS_OUTPUT_PREFIX)
@@ -536,13 +555,14 @@ def main(args):
     if best_epoch > 0:
         _, best_val_metrics_dict, _, _, _ = evaluate_model_ft(
             model, val_loader, criterion, device, dataset_name="Best Validation Epoch",
-            actual_cat_cardinalities_for_debug=current_cat_cardinalities
+            actual_cat_cardinalities_for_debug=current_cat_cardinalities,
+            cat_feat_names_for_debug=cat_feat_names
         )
 
     # 6. Perform SHAP Analysis
     shap_feature_importance = None
-    if args.run_shap and num_feat_names:
-        class SimpleNumPyLoader:  # Helper for SHAP KernelExplainer
+    if args.run_shap and num_feat_names:  # Only run if numerical features exist
+        class SimpleNumPyLoader:
             def __init__(self, data_np, batch_size):
                 self.data_np, self.batch_size = data_np, batch_size; self.n_samples = data_np.shape[
                     0] if data_np.ndim > 1 and data_np.shape[0] > 0 else 0
@@ -551,7 +571,7 @@ def main(args):
                 self.current_idx = 0; return self
 
             def __next__(self):
-                if self.n_samples == 0: raise StopIteration  # Handle empty data
+                if self.n_samples == 0: raise StopIteration
                 if self.current_idx < self.n_samples:
                     end_idx = min(self.current_idx + self.batch_size, self.n_samples)
                     batch = self.data_np[self.current_idx:end_idx];
@@ -584,7 +604,6 @@ def main(args):
         save_model_to_gcs(model.state_dict(), GCS_BUCKET, model_blob_name)
 
     # 8. Save Logs and Metrics
-    # (Identical logging structure to MLP script)
     logging.info("Saving final logs and metrics...")
     log_summary = {
         "model_type": MODEL_NAME, "script_args": vars(args), "device_used": str(device),
