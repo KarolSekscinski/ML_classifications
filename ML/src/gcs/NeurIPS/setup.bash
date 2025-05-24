@@ -52,7 +52,7 @@ fi
 echo "Python environment setup complete!"
 
 # --- Run Training Scripts with Tuning ---
-SVM_SCRIPT_PATH="$REPO_PATH/src/gcs/svm_pipeline.py"
+SVM_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/svm_pipeline.py"
 SVM_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/svm_run_$(date +%Y%m%d_%H%M%S)"
 
 echo "Running SVM pipeline with tuning..."
@@ -70,7 +70,7 @@ echo "Finished SVM training."
 echo "------------------------------------"
 
 
-XGB_SCRIPT_PATH="$REPO_PATH/src/gcs/xgboost_pipeline.py"
+XGB_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/xgboost_pipeline.py"
 XGB_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/xgb_run_$(date +%Y%m%d_%H%M%S)"
 
 echo "Running XGBoost pipeline with tuning..."
