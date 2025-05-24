@@ -15,8 +15,8 @@ METADATA_URI_FT="gs://$GCS_BUCKET/NeurIPS/metadata/preprocessing_ft_metadata.jso
 
 RESULTS_BASE_PREFIX="NeurIPS/results_tuned" # New prefix for tuned results
 
-MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/mlp_pipeline.py"
-FT_SCRIPT_PATH="$REPO_PATH/src/gcs/ft_transformer_pipeline.py"
+MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/mlp_pipeline.py"
+FT_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/ft_transformer_pipeline.py"
 
 # --- Environment Setup ---
 echo "Updating package list..."
