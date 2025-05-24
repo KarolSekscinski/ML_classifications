@@ -17,7 +17,7 @@ import json
 import copy
 import optuna  # Added for hyperparameter tuning
 
-from ML_classifications.ML.src.gcs import gcs_utils
+import gcs_utils
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 plt.style.use('seaborn-v0_8-darkgrid')
