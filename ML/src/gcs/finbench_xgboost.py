@@ -269,7 +269,7 @@ def main(args):
         'n_estimators') - 1
     best_score_final = final_xgb_model.best_score if hasattr(final_xgb_model, 'best_score') else None
     if best_iteration_final is not None: logging.info(
-        f"Final model best iteration: {best_iteration_final}, Best score: {best_score_final:.4f if best_score_final else 'N/A'}")
+        f"Final model best iteration: {best_iteration_final}, Best score: {best_score_final if best_score_final else 'N/A'}")
 
     logging.info("Predicting on Validation set (Final Model)...")
     y_val_pred_proba_final = final_xgb_model.predict_proba(X_val, iteration_range=(0, best_iteration_final + 1))[:, 1]
