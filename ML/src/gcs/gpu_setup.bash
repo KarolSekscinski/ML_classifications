@@ -14,8 +14,8 @@ METADATA_URI_FT="gs://$GCS_BUCKET/NeurIPS/metadata/preprocessing_ft_metadata.jso
 
 RESULTS_BASE_PREFIX="NeurIPS/results_tuned" # New prefix for tuned results
 
-MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/mlp_pipeline.py"
-FT_SCRIPT_PATH="$REPO_PATH/src/gcs/NeurIPS/ft_transformer_pipeline.py"
+MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/mlp_pipeline.py"
+FT_SCRIPT_PATH="$REPO_PATH/src/gcs/ft_transformer_pipeline.py"
 
 # --- Environment Setup ---
 echo "Updating package list..."
@@ -53,7 +53,7 @@ fi
 # --- Run GPU Pipelines with Tuning ---
 
 echo "Starting MLP pipeline execution with tuning..."
-python -m "$MLP_SCRIPT_PATH" \
+python "$MLP_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_OHE" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
@@ -67,7 +67,7 @@ echo "------------------------------------"
 
 
 echo "Starting FT-Transformer pipeline execution with tuning..."
-python -m "$FT_SCRIPT_PATH" \
+python "$FT_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \

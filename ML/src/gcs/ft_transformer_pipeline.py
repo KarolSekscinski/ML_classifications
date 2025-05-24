@@ -20,7 +20,7 @@ import os
 import optuna  # For hyperparameter tuning
 
 # Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
-from ..gcs_utils import *
+import gcs_utils
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
