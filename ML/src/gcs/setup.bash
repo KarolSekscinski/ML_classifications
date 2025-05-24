@@ -60,7 +60,7 @@ if [ -f "$SVM_SCRIPT_PATH" ]; then
         --gcs-bucket "$GCS_BUCKET" \
         --metadata-uri "$METADATA_URI" \
         --gcs-output-prefix "$SVM_OUTPUT_PREFIX" \
-        --n-trials 10 \ # Number of Optuna trials for SVM
+        --n-trials 10 \
         --svm-max-iter 1000 # Max iterations for LinearSVC used in trials & final model
 else
     echo "ERROR: SVM pipeline script not found at $SVM_SCRIPT_PATH"; deactivate; exit 1;
@@ -78,7 +78,7 @@ if [ -f "$XGB_SCRIPT_PATH" ]; then
         --gcs-bucket "$GCS_BUCKET" \
         --metadata-uri "$METADATA_URI" \
         --gcs-output-prefix "$XGB_OUTPUT_PREFIX" \
-        --n-trials 20 \ # Number of Optuna trials for XGBoost
+        --n-trials 20 \
         --optimization-metric "aucpr" \
         --xgb-early-stopping-rounds 10
 else

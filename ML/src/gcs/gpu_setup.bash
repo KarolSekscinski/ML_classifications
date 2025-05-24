@@ -57,8 +57,8 @@ python "$MLP_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_OHE" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 15 \ # Epochs per trial and for final model
-    --n-trials 20 \ # Number of Optuna trials
+    --epochs 15 \
+    --n-trials 20 \
     --optimization-metric "pr_auc" \
     --batch-size-default 512 \
     --num-workers 2
@@ -71,8 +71,8 @@ python "$FT_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 10 \ # Epochs per trial and for final model
-    --n-trials 15 \ # Number of Optuna trials
+    --epochs 10 \
+    --n-trials 15 \
     --optimization-metric "pr_auc" \
     --batch-size-default 256 \
     --num-workers 2
