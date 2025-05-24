@@ -1,4 +1,3 @@
-# gcs/setup.bash
 #!/bin/bash
 
 set -e
@@ -57,7 +56,7 @@ SVM_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/svm_run_$(date +%Y%m%d_%H%M%S)"
 
 echo "Running SVM pipeline with tuning..."
 if [ -f "$SVM_SCRIPT_PATH" ]; then
-    python "$SVM_SCRIPT_PATH" \
+    python -m "$SVM_SCRIPT_PATH" \
         --gcs-bucket "$GCS_BUCKET" \
         --metadata-uri "$METADATA_URI" \
         --gcs-output-prefix "$SVM_OUTPUT_PREFIX" \
@@ -75,7 +74,7 @@ XGB_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/xgb_run_$(date +%Y%m%d_%H%M%S)"
 
 echo "Running XGBoost pipeline with tuning..."
 if [ -f "$XGB_SCRIPT_PATH" ]; then
-    python "$XGB_SCRIPT_PATH" \
+    python -m "$XGB_SCRIPT_PATH" \
         --gcs-bucket "$GCS_BUCKET" \
         --metadata-uri "$METADATA_URI" \
         --gcs-output-prefix "$XGB_OUTPUT_PREFIX" \

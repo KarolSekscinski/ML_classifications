@@ -1,4 +1,3 @@
-# gcs/gpu_setup.bash
 #!/bin/bash
 
 # Ensure the script exits if any command fails
@@ -54,7 +53,7 @@ fi
 # --- Run GPU Pipelines with Tuning ---
 
 echo "Starting MLP pipeline execution with tuning..."
-python "$MLP_SCRIPT_PATH" \
+python -m "$MLP_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_OHE" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
@@ -68,7 +67,7 @@ echo "------------------------------------"
 
 
 echo "Starting FT-Transformer pipeline execution with tuning..."
-python "$FT_SCRIPT_PATH" \
+python -m "$FT_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \

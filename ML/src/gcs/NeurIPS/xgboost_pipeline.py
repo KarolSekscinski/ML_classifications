@@ -17,7 +17,7 @@ import json
 import os
 import optuna
 
-from ML_classifications.ML.src.gcs import gcs_utils
+from ..gcs_utils import *
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
