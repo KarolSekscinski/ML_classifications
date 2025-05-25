@@ -195,7 +195,8 @@ def main(args):
             'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 1.0, log=True),  # L1
             'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 1.0, log=True),  # L2
             'random_state': 42,
-            'n_jobs': -1
+            'n_jobs': -1,
+            'scale_pos_weight': trial.suggest_float('scale_pos_weight')
         }
 
         model = xgb.XGBClassifier(**param)
