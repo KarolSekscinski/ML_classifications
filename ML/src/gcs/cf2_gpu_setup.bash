@@ -68,19 +68,19 @@ fi
 
 # --- Run GPU Pipelines ---
 
-echo "Starting MLP pipeline execution (with Hyperparameter Tuning)..."
-python "$MLP_SCRIPT_PATH" \
-    --gcs-bucket "$GCS_BUCKET" \
-    --metadata-uri "$METADATA_URI_OHE" \
-    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 15 \
-    --batch-size 256 \
-    --learning-rate 1e-4 \
-    --mlp-hidden-dims "256,128,64"
-    # Removed --run-shap. Other args might be used as defaults or for trials by the script.
-
-echo "Finished MLP pipeline execution."
-echo "------------------------------------"
+#echo "Starting MLP pipeline execution (with Hyperparameter Tuning)..."
+#python "$MLP_SCRIPT_PATH" \
+#    --gcs-bucket "$GCS_BUCKET" \
+#    --metadata-uri "$METADATA_URI_OHE" \
+#    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
+#    --epochs 15 \
+#    --batch-size 256 \
+#    --learning-rate 1e-4 \
+#    --mlp-hidden-dims "256,128,64"
+#    # Removed --run-shap. Other args might be used as defaults or for trials by the script.
+#
+#echo "Finished MLP pipeline execution."
+#echo "------------------------------------"
 
 
 echo "Starting FT-Transformer pipeline execution (with Hyperparameter Tuning)..."
