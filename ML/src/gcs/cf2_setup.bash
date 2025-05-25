@@ -79,24 +79,24 @@ echo "Python environment setup complete!"
 
 # --- Run Training Scripts ---
 
-echo "Running svm pipeline (with Hyperparameter Tuning)..."
-SVM_SCRIPT_PATH="$REPO_PATH/src/gcs/finbench_svm.py"
-SVM_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/svm_tuned_run_$(date +%Y%m%d_%H%M%S)"
-
-if [ -f "$SVM_SCRIPT_PATH" ]; then
-    python "$SVM_SCRIPT_PATH" \
-        --gcs-bucket "$GCS_BUCKET" \
-        --metadata-uri "$METADATA_URI" \
-        --gcs-output-prefix "$SVM_OUTPUT_PREFIX"
-        # Removed --run-shap.
-        # --svm-c 10 # This might be used as a default or ignored if C is tuned.
-else
-    echo "ERROR: SVM pipeline script not found at $SVM_SCRIPT_PATH"
-    deactivate
-    exit 1
-fi
-echo "Finished SVM training."
-echo "------------------------------------"
+#echo "Running svm pipeline (with Hyperparameter Tuning)..."
+#SVM_SCRIPT_PATH="$REPO_PATH/src/gcs/finbench_svm.py"
+#SVM_OUTPUT_PREFIX="$RESULTS_BASE_PREFIX/svm_tuned_run_$(date +%Y%m%d_%H%M%S)"
+#
+#if [ -f "$SVM_SCRIPT_PATH" ]; then
+#    python "$SVM_SCRIPT_PATH" \
+#        --gcs-bucket "$GCS_BUCKET" \
+#        --metadata-uri "$METADATA_URI" \
+#        --gcs-output-prefix "$SVM_OUTPUT_PREFIX"
+#        # Removed --run-shap.
+#        # --svm-c 10 # This might be used as a default or ignored if C is tuned.
+#else
+#    echo "ERROR: SVM pipeline script not found at $SVM_SCRIPT_PATH"
+#    deactivate
+#    exit 1
+#fi
+#echo "Finished SVM training."
+#echo "------------------------------------"
 
 
 echo "Running xgboost pipeline (with Hyperparameter Tuning)..."
