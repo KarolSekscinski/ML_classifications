@@ -20,7 +20,7 @@ METADATA_URI_OHE="gs://$GCS_BUCKET/FinBench/metadata/preprocessing_ohe_metadata.
 METADATA_URI_FT="gs://$GCS_BUCKET/FinBench/metadata/preprocessing_ft_metadata.json"
 
 # Define base GCS prefixes for results
-RESULTS_BASE_PREFIX="FinBench/results" # Store GPU results separately
+RESULTS_BASE_PREFIX="FinBench/results_tuned" # Store GPU results separately
 
 # Define paths to the python pipeline scripts
 MLP_SCRIPT_PATH="$REPO_PATH/src/gcs/finbench_mlp.py"
@@ -72,9 +72,9 @@ echo "Starting MLP pipeline execution (with Hyperparameter Tuning)..."
 python "$MLP_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_OHE" \
-    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_tuned_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 50 \
-    --batch-size 512 \
+    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
+    --epochs 15 \
+    --batch-size 256 \
     --learning-rate 1e-4 \
     --mlp-hidden-dims "256,128,64"
     # Removed --run-shap. Other args might be used as defaults or for trials by the script.
@@ -87,8 +87,8 @@ echo "Starting FT-Transformer pipeline execution (with Hyperparameter Tuning)...
 python "$FT_SCRIPT_PATH" \
     --gcs-bucket "$GCS_BUCKET" \
     --metadata-uri "$METADATA_URI_FT" \
-    --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_tuned_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 30 \
+    --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \
+    --epochs 15 \
     --batch-size 256 \
     --learning-rate 1e-4 \
     --ft-n-blocks 3 \

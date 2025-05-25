@@ -52,18 +52,18 @@ fi
 
 # --- Run GPU Pipelines with Tuning ---
 
-echo "Starting MLP pipeline execution with tuning..."
-python "$MLP_SCRIPT_PATH" \
-    --gcs-bucket "$GCS_BUCKET" \
-    --metadata-uri "$METADATA_URI_OHE" \
-    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
-    --epochs 15 \
-    --n-trials 20 \
-    --optimization-metric "pr_auc" \
-    --batch-size-default 512 \
-    --num-workers 2
-echo "Finished MLP pipeline execution."
-echo "------------------------------------"
+#echo "Starting MLP pipeline execution with tuning..."
+#python "$MLP_SCRIPT_PATH" \
+#    --gcs-bucket "$GCS_BUCKET" \
+#    --metadata-uri "$METADATA_URI_OHE" \
+#    --gcs-output-prefix "$RESULTS_BASE_PREFIX/mlp_run_$(date +%Y%m%d_%H%M%S)" \
+#    --epochs 15 \
+#    --n-trials 20 \
+#    --optimization-metric "pr_auc" \
+#    --batch-size-default 512 \
+#    --num-workers 2
+#echo "Finished MLP pipeline execution."
+#echo "------------------------------------"
 
 
 echo "Starting FT-Transformer pipeline execution with tuning..."
