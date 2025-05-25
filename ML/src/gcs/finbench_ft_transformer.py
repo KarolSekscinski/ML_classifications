@@ -17,6 +17,7 @@ import json
 import copy
 import traceback
 import optuna  # Added for hyperparameter tuning
+from sklearn.metrics import confusion_matrix, RocCurveDisplay, PrecisionRecallDisplay
 
 import gcs_utils
 
