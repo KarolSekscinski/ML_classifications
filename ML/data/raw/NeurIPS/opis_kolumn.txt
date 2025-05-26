@@ -1,0 +1,95 @@
+fraud_bool (moja zmienna docelowa)
+Etykieta oszustwa (1 – jeśli oszustwo, 0 – jeśli legalne)
+
+income
+Roczny dochód wnioskodawcy w kwantylach. Zakres: [0, 1].
+
+name_email_similarity
+Miara podobieństwa między adresem e-mail a imieniem i nazwiskiem wnioskodawcy. Wyższe wartości oznaczają większe podobieństwo. Zakres: [0, 1].
+
+prev_address_months_count
+Liczba miesięcy spędzonych pod poprzednim zarejestrowanym adresem wnioskodawcy, tj. jego poprzednie miejsce zamieszkania (jeśli dotyczy). Zakres: [−1, 380] miesięcy (-1 oznacza brak wartości).
+
+current_address_months_count
+Liczba miesięcy pod aktualnym zarejestrowanym adresem wnioskodawcy. Zakres: [−1, 406] miesięcy (-1 oznacza brak wartości).
+
+customer_age
+Wiek wnioskodawcy w przedziałach co dekadę (np. wiek 20–29 reprezentowany jako 20).
+
+days_since_request
+Liczba dni, które minęły od złożenia wniosku. Zakres: [0, 78] dni.
+
+intended_balcon_amount
+Początkowa kwota przelana w ramach wniosku. Zakres: [−1, 108].
+
+payment_type
+Typ planu spłaty kredytu. 5 możliwych (zanonimizowanych) wartości.
+
+zip_count_4w
+Liczba wniosków w tym samym kodzie pocztowym w ciągu ostatnich 4 tygodni. Zakres: [1, 5767].
+
+velocity_6h
+Szybkość składania wniosków w ostatnich 6 godzinach, tj. średnia liczba wniosków na godzinę w tym okresie. Zakres: [−211, 24763].
+
+velocity_24h
+Szybkość składania wniosków w ostatnich 24 godzinach, tj. średnia liczba wniosków na godzinę. Zakres: [1329, 9527].
+
+velocity_4w
+Szybkość składania wniosków w ostatnich 4 tygodniach, tj. średnia liczba wniosków na godzinę. Zakres: [2779, 7043].
+
+bank_branch_count_8w
+Liczba wszystkich wniosków w wybranym oddziale banku w ciągu ostatnich 8 tygodni. Zakres: [0, 2521].
+
+date_of_birth_distinct_emails_4w
+Liczba e-maili od wnioskodawców z tą samą datą urodzenia w ciągu ostatnich 4 tygodni. Zakres: [0, 42].
+
+employment_status
+Status zatrudnienia wnioskodawcy. 7 możliwych (zanonimizowanych) wartości.
+
+credit_risk_score
+Wewnętrzna ocena ryzyka kredytowego. Zakres: [−176, 387].
+
+email_is_free
+Rodzaj domeny e-mailowej we wniosku (darmowa lub płatna).
+
+housing_status
+Obecny status mieszkaniowy wnioskodawcy. 7 możliwych (zanonimizowanych) wartości.
+
+phone_home_valid
+Poprawność podanego numeru telefonu stacjonarnego.
+
+phone_mobile_valid
+Poprawność podanego numeru telefonu komórkowego.
+
+bank_months_count
+Wiek poprzedniego konta bankowego (jeśli istniało), w miesiącach. Zakres: [−1, 31] miesięcy (-1 oznacza brak wartości).
+
+has_other_cards
+Czy wnioskodawca posiada inne karty od tej samej instytucji finansowej.
+
+proposed_credit_limit
+Proponowany przez wnioskodawcę limit kredytowy. Zakres: [200, 2000].
+
+foreign_request
+Czy kraj pochodzenia wniosku różni się od kraju banku.
+
+source
+Źródło złożenia wniosku – przeglądarka internetowa (INTERNET) lub aplikacja mobilna (APP).
+
+session_length_in_minutes
+Długość sesji użytkownika na stronie banku w minutach. Zakres: [−1, 107] minut.
+
+device_os
+System operacyjny urządzenia, z którego złożono wniosek. Możliwe wartości: Windows, Macintox, Linux, X11, inne.
+
+keep_alive_session
+Opcja użytkownika dotycząca automatycznego wylogowania z sesji.
+
+device_distinct_emails_8w
+Liczba unikalnych adresów e-mail używanych z tego samego urządzenia na stronie banku w ciągu ostatnich 8 tygodni. Zakres: [0, 3].
+
+device_fraud_count
+Liczba oszukańczych wniosków złożonych z użyciem danego urządzenia. Zakres: [0, 1].
+
+month
+Miesiąc, w którym złożono wniosek. Zakres: [0, 7].

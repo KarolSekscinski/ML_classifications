@@ -11,11 +11,10 @@ from imblearn.over_sampling import SMOTE
 from io import StringIO, BytesIO
 import joblib
 import json
-import os
 import ast  # For safely evaluating string literals
 
 # Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
-import gcs_utils  # Make sure this file is available
+from ML_classifications.ML.src.gcs import gcs_utils
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

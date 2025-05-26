@@ -10,10 +10,9 @@ from imblearn.over_sampling import SMOTE
 from io import StringIO, BytesIO
 import joblib
 import json
-import os
 import ast
 
-import gcs_utils  # Make sure this file is available
+from ML_classifications.ML.src.gcs import gcs_utils
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

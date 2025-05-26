@@ -11,10 +11,9 @@ from imblearn.over_sampling import SMOTE
 from io import StringIO, BytesIO
 import joblib # Using joblib for potentially better handling of sklearn objects
 import json
-import os
 
 # Assuming gcs_utils.py is in the same directory or accessible via PYTHONPATH
-import gcs_utils
+from ML_classifications.ML.src.gcs import gcs_utils
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
