@@ -5,175 +5,226 @@ import os
 import pandas as pd
 import fnmatch  # For pattern matching with os.walk
 from collections import defaultdict
+import numpy as np  # For checking np.nan
 
 
 def get_metric(metrics_dict, key, fallback_keys=None):
-    """Safely retrieves a metric, trying primary key then fallback keys."""
+    """
+    Safely retrieves a metric from a dictionary.
+    Tries the primary key, then any fallback keys provided.
+    Returns the metric value as float if valid, otherwise "N/A".
+    """
     if not isinstance(metrics_dict, dict):
         return "N/A"
+
+    # Try primary key
     val = metrics_dict.get(key)
-    if val is not None and isinstance(val, (float, int)) and val >= 0:  # Ensure it's a valid numeric metric
+    if val is not None and isinstance(val, (float, int)) and not (
+            isinstance(val, float) and np.isnan(val)) and val >= 0:
         return float(val)
+
+    # Try fallback keys
     if fallback_keys:
         for fb_key in fallback_keys:
             val = metrics_dict.get(fb_key)
-            if val is not None and isinstance(val, (float, int)) and val >= 0:
+            if val is not None and isinstance(val, (float, int)) and not (
+                    isinstance(val, float) and np.isnan(val)) and val >= 0:
                 return float(val)
     return "N/A"
 
 
 def get_performance_score(log_data):
     """
-    Calculates a performance score for a log entry to determine the "best" model.
-    Higher score is better.
-    Priority: Test PR-AUC > Test ROC-AUC > Test F1 > Best Val PR-AUC > Best Val F1
+    Determines the performance score of a model based on PR AUC from the final test set evaluation.
+    Higher PR AUC is better.
     """
-    score = -1.0  # Default for models with no comparable metrics
+    pr_auc_score = -1.0  # Default for models where PR AUC is not found or not applicable
 
-    test_metrics = None
-    if "test_set_evaluation_with_best_model" in log_data:
-        test_metrics = log_data["test_set_evaluation_with_best_model"]
-    elif "test_set_evaluation" in log_data:
-        test_metrics = log_data["test_set_evaluation"]
-    elif "evaluation_metrics" in log_data:  # For older SVM/XGB logs
-        test_metrics = log_data["evaluation_metrics"]
+    # Path 1: For tuned PyTorch models (MLP, FT-Transformer) from my modified scripts
+    # final_model_test_set_evaluation: {"loss": ..., "metrics": {"pr_auc": ...}}
+    eval_data = log_data.get("final_model_test_set_evaluation")
+    if isinstance(eval_data, dict):
+        metrics_data = eval_data.get("metrics", eval_data)  # Handles if "metrics" is nested or not
+        if isinstance(metrics_data, dict):
+            pr_auc = get_metric(metrics_data, "pr_auc")
+            if isinstance(pr_auc, float):
+                return pr_auc
 
-    if test_metrics and isinstance(test_metrics, dict):
-        metrics_source = test_metrics.get("metrics", test_metrics)  # Handle nested 'metrics' key
-        if isinstance(metrics_source, dict):
-            pr_auc = get_metric(metrics_source, "pr_auc")
-            if isinstance(pr_auc, float) and pr_auc > 0: return pr_auc * 1000  # Prioritize PR-AUC highly
+    # Path 2: For tuned Scikit-learn/XGBoost models from my modified scripts
+    # final_model_evaluation_metrics: {"pr_auc": ...}
+    eval_data_sklearn = log_data.get("final_model_evaluation_metrics")
+    if isinstance(eval_data_sklearn, dict):
+        pr_auc = get_metric(eval_data_sklearn, "pr_auc")
+        if isinstance(pr_auc, float):
+            return pr_auc
 
-            roc_auc = get_metric(metrics_source, "roc_auc")
-            if isinstance(roc_auc, float) and roc_auc > 0: return roc_auc * 100
+    # Path 3: For original script structure (if still encountered)
+    # evaluation_metrics: {"pr_auc": ...} or evaluation_metrics: {"metrics": {"pr_auc": ...}}
+    eval_data_orig = log_data.get("evaluation_metrics")
+    if isinstance(eval_data_orig, dict):
+        metrics_data_orig = eval_data_orig.get("metrics", eval_data_orig)
+        if isinstance(metrics_data_orig, dict):
+            pr_auc = get_metric(metrics_data_orig, "pr_auc")
+            if isinstance(pr_auc, float):
+                return pr_auc
 
-            f1 = get_metric(metrics_source, "f1_score", fallback_keys=["f1"])
-            if isinstance(f1, float): return f1
-
-    # Fallback to validation metrics if test metrics are not conclusive
-    best_val_metrics = log_data.get("best_epoch_validation_metrics")
-    if best_val_metrics and isinstance(best_val_metrics, dict):
-        val_pr_auc = get_metric(best_val_metrics, "pr_auc")
-        if isinstance(val_pr_auc, float) and val_pr_auc > 0: return val_pr_auc * 10  # Lower weight than test
-
-        val_f1 = get_metric(best_val_metrics, "f1_score", fallback_keys=["f1"])
-        if isinstance(val_f1, float): return val_f1 * 0.1
-
-    return score
+    return pr_auc_score
 
 
 def print_log_summary(log_file_path, log_data):
-    """Prints a summary of a single training log."""
+    """Prints a summary of a single training log, adapted for tuned model outputs."""
     print("=" * 80)
-    print(f"BEST MODEL SUMMARY for Model Type: {log_data.get('model_type', 'N/A')}")
-    print(f"Log File: {log_file_path}")
+    model_type_name = log_data.get('model_type', 'N/A')
+    # Clean up model type name if it contains "Tuned" from example
+    if "Tuned" in model_type_name and "FinBench" in model_type_name:  # Specific to example
+        model_type_name = model_type_name.replace("FinBench_", "").replace("_Tuned", "")
+
+    print(f"NAJLEPSZY MODEL (wg PR AUC na teście) dla typu: {model_type_name}")
+    print(f"Plik logu: {log_file_path}")
     print("-" * 80)
 
     metadata_source = log_data.get("metadata_source", "N/A")
-    print(f"  Metadata Source: {metadata_source}")
+    print(f"  Źródło metadanych: {metadata_source}")
 
     output_gcs_prefix = log_data.get("output_gcs_prefix", "N/A")
-    print(f"  GCS Output Prefix: {output_gcs_prefix}")
+    print(f"  Prefiks wyjściowy GCS: {output_gcs_prefix}")
 
     saved_model_path = log_data.get("saved_model_path", "N/A")
-    print(f"  Saved Model Path: {saved_model_path}")
+    print(f"  Ścieżka zapisanego modelu: {saved_model_path}")
 
-    training_duration = log_data.get("training_duration_seconds",
-                                     log_data.get("training_total_duration_seconds"))
+    # Training Duration
+    training_duration = log_data.get("final_model_training_total_duration_seconds",  # From example
+                                     log_data.get("final_model_training_duration_seconds",  # From my scripts
+                                                  log_data.get("training_duration_seconds")))  # Fallback
     if training_duration is not None:
         try:
-            print(f"  Training Duration: {float(training_duration):.2f} seconds")
+            print(f"  Czas trenowania finalnego modelu: {float(training_duration):.2f} sekund")
         except (ValueError, TypeError):
-            print(f"  Training Duration: {training_duration}")
+            print(f"  Czas trenowania finalnego modelu: {training_duration}")
 
-    script_args = log_data.get("script_args")
-    if script_args and isinstance(script_args, dict):
-        print("  Key Script Arguments:")
-        key_args_to_print = ['learning_rate', 'epochs', 'batch_size', 'svm_c', 'svm_kernel',
-                             'xgb_n_estimators', 'mlp_hidden_dims', 'ft_d_token', 'ft_n_blocks',
-                             'early_stopping_patience']
-        for key, value in script_args.items():
-            if key in key_args_to_print:
+    # Tuning Information
+    print("\n  Informacje o strojeniu (Optuna):")
+    tuning_args = log_data.get("tuning_args", {})
+    n_trials = tuning_args.get("n_trials", log_data.get("optuna_n_trials", "N/A"))
+    optimized_metric_name = tuning_args.get("optimization_metric")
+
+    best_tuned_value = log_data.get("best_tuned_metric_value")
+    if best_tuned_value is None:  # Try example's specific key
+        if "optuna_best_trial_metric_value_pr_auc" in log_data:
+            best_tuned_value = log_data.get("optuna_best_trial_metric_value_pr_auc")
+            if not optimized_metric_name: optimized_metric_name = "pr_auc"  # Infer from key
+        elif "best_trial_metric_value" in log_data:  # Generic fallback
+            best_tuned_value = log_data.get("best_trial_metric_value")
+
+    print(f"    Liczba prób (trials): {n_trials}")
+    if optimized_metric_name:
+        print(f"    Optymalizowana metryka (podczas strojenia): {optimized_metric_name.upper()}")
+    if best_tuned_value is not None:
+        try:
+            print(f"    Najlepsza wartość metryki (podczas strojenia): {float(best_tuned_value):.4f}")
+        except (ValueError, TypeError):
+            print(f"    Najlepsza wartość metryki (podczas strojenia): {best_tuned_value}")
+
+    # Best Hyperparameters
+    best_hyperparams = log_data.get("best_hyperparameters")
+    if best_hyperparams and isinstance(best_hyperparams, dict):
+        print("\n  Najlepsze znalezione hiperparametry:")
+        for key, value in best_hyperparams.items():
+            if isinstance(value, float):
+                print(f"    {key}: {value:.6f}")
+            else:
                 print(f"    {key}: {value}")
 
-    # Print Test Set Metrics
-    evaluation_section = None
-    section_name = "N/A"
-    if "test_set_evaluation_with_best_model" in log_data:
-        evaluation_section = log_data["test_set_evaluation_with_best_model"]
-        section_name = "Test Set Evaluation (with Best Model)"
-    elif "test_set_evaluation" in log_data:
-        evaluation_section = log_data["test_set_evaluation"]
-        section_name = "Test Set Evaluation"
-    elif "evaluation_metrics" in log_data:
-        evaluation_section = log_data["evaluation_metrics"]
-        section_name = "Test Set Evaluation"
+    # Script Arguments (original call arguments, for context)
+    script_args = log_data.get("script_args")
+    if script_args and isinstance(script_args, dict):
+        print("\n  Argumenty skryptu (konfiguracja uruchomienia):")
+        # Print a few key non-tuned args or general config
+        key_args_to_print = ['epochs', 'num_workers', 'early_stopping_patience',
+                             'n_trials', 'optimization_metric', 'batch_size_default',
+                             'svm_max_iter', 'xgb_early_stopping_rounds']  # Add more fixed args if needed
+        printed_script_args = False
+        for key, value in script_args.items():
+            if key in key_args_to_print:  # Print only selected fixed/config args
+                print(f"    {key}: {value}")
+                printed_script_args = True
+        if not printed_script_args:
+            print("    (Brak wybranych argumentów do wyświetlenia lub wszystkie były dynamiczne)")
 
-    if evaluation_section and isinstance(evaluation_section, dict):
+    # Final Model Test Set Metrics
+    test_metrics_data = None
+    section_name = "Ewaluacja finalnego modelu na zbiorze testowym"
+
+    # Try paths for metrics from tuned scripts
+    if "final_model_test_set_evaluation" in log_data:
+        test_metrics_container = log_data["final_model_test_set_evaluation"]
+        if isinstance(test_metrics_container, dict):
+            test_metrics_data = test_metrics_container.get("metrics", test_metrics_container)
+    elif "final_model_evaluation_metrics" in log_data:  # For tuned sklearn/XGB
+        test_metrics_data = log_data["final_model_evaluation_metrics"]
+    elif "evaluation_metrics" in log_data:  # Fallback to older structure
+        test_metrics_container = log_data["evaluation_metrics"]
+        if isinstance(test_metrics_container, dict):
+            test_metrics_data = test_metrics_container.get("metrics", test_metrics_container)
+
+    if isinstance(test_metrics_data, dict):
         print(f"\n  {section_name}:")
-        metrics = evaluation_section.get("metrics", evaluation_section)
-        if isinstance(metrics, dict):
-            for key in ["accuracy", "precision", "recall", "f1_score", "f1", "roc_auc", "pr_auc"]:
-                val = get_metric(metrics, key)
-                if val != "N/A":  # Only print if metric was found and valid
-                    # Standardize f1_score key for printing
-                    print_key = "F1-Score" if key in ["f1_score", "f1"] else key.replace("_", " ").title()
-                    print(f"    {print_key}: {val:.4f}" if isinstance(val, float) else f"    {print_key}: {val}")
-
-            cm = metrics.get("confusion_matrix")
-            if cm:
-                print("    Confusion Matrix:")
-                if isinstance(cm, list) and all(isinstance(row, list) for row in cm):
-                    for row_idx, row_val in enumerate(cm): print(f"      {row_val}")
-                else:
-                    print(f"      {cm}")
-        else:
-            print("    Metrics section (test) not in expected dictionary format.")
-    else:
-        print("\n  No Test Set Evaluation Metrics found or section is malformed.")
-
-    # Print Best Validation Epoch Metrics (if available)
-    best_val_metrics_section = log_data.get("best_epoch_validation_metrics")
-    if best_val_metrics_section and isinstance(best_val_metrics_section, dict):
-        print("\n  Best Validation Epoch Metrics (during training):")
-        # Note: best_epoch_validation_metrics is already the metrics dict itself
-        for key in ["accuracy", "precision", "recall", "f1_score", "f1", "roc_auc", "pr_auc"]:
-            val = get_metric(best_val_metrics_section, key)
+        # Define preferred order and names for display
+        metric_keys_display = {
+            "pr_auc": "PR AUC",
+            "roc_auc": "ROC AUC",
+            "f1": "F1-Score",
+            "f1_score": "F1-Score",  # Fallback key
+            "recall": "Recall (Czułość)",
+            "precision": "Precision (Precyzja)",
+            "accuracy": "Accuracy (Dokładność)",
+        }
+        for key, display_name in metric_keys_display.items():
+            val = get_metric(test_metrics_data, key)  # Pass the actual metrics dict
             if val != "N/A":
-                print_key = "F1-Score" if key in ["f1_score", "f1"] else key.replace("_", " ").title()
-                print(f"    {print_key}: {val:.4f}" if isinstance(val, float) else f"    {print_key}: {val}")
+                print(f"    {display_name}: {val:.4f}")
 
-        best_val_loss_val = log_data.get("best_validation_loss", "N/A")
-        best_epoch_val = log_data.get("best_epoch_for_early_stopping", "N/A")
-        print(f"    Best Validation Loss: {best_val_loss_val:.4f}" if isinstance(best_val_loss_val,
-                                                                                 float) else f"    Best Validation Loss: {best_val_loss_val}")
-        print(f"    Achieved at Epoch: {best_epoch_val}")
-
-    shap_run = log_data.get("shap_analysis_run", False)  # Default to False if not present
-    print(f"\n  SHAP Analysis Run: {shap_run}")
-    if shap_run and "shap_top_features" in log_data and log_data["shap_top_features"]:
-        print("  Top SHAP Features:")
-        try:
-            shap_features_data = log_data["shap_top_features"]
-            if isinstance(shap_features_data, list) and all(isinstance(item, dict) for item in shap_features_data):
-                df_shap = pd.DataFrame(shap_features_data)
-                if not df_shap.empty:
-                    print(df_shap.to_string(index=False, float_format="%.4f"))
-                else:
-                    print("    SHAP features data is empty.")
+        cm = test_metrics_data.get("confusion_matrix")
+        if cm:
+            print("    Macierz Pomyłek (Confusion Matrix):")
+            if isinstance(cm, list) and all(isinstance(row, list) for row in cm):
+                for row_val in cm: print(f"      {row_val}")
             else:
-                print(f"    SHAP features data is not in the expected list of dictionaries format.")
-        except Exception as e:
-            print(f"    Could not parse or display SHAP features: {e}")
+                print(f"      {cm}")
+    else:
+        print(f"\n  {section_name}: Brak danych metryk lub niepoprawny format.")
+
+    # Information about validation during FINAL model training (if present, like in example)
+    best_val_metrics_final_train = log_data.get("final_model_best_epoch_validation_metrics")
+    if isinstance(best_val_metrics_final_train, dict):
+        print("\n  Najlepsze metryki walidacyjne (podczas treningu finalnego modelu):")
+        best_epoch_final_train = log_data.get("final_model_best_epoch_for_early_stopping", "N/A")
+        best_val_loss_final_train = log_data.get("final_model_best_validation_loss", "N/A")
+
+        print(f"    Osiągnięte w epoce: {best_epoch_final_train}")
+        if isinstance(best_val_loss_final_train, float):
+            print(f"    Najlepsza strata walidacyjna: {best_val_loss_final_train:.4f}")
+        else:
+            print(f"    Najlepsza strata walidacyjna: {best_val_loss_final_train}")
+
+        for key, display_name in metric_keys_display.items():  # Reuse display map
+            val = get_metric(best_val_metrics_final_train, key)
+            if val != "N/A":
+                print(f"    {display_name} (walidacja): {val:.4f}")
+        cm_val = best_val_metrics_final_train.get("confusion_matrix")
+        if cm_val:
+            print("    Macierz Pomyłek (walidacja):")
+            for row_val in cm_val: print(f"      {row_val}")
+
     print("=" * 80 + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Read and summarize training log JSON files from a directory and its subdirectories, showing only the best per model type.")
-    parser.add_argument("log_directory", type=str, help="Directory containing the training log files.")
+        description="Czyta i podsumowuje pliki JSON z logami treningowymi, wyświetlając najlepszy model dla każdego typu wg PR AUC na zbiorze testowym.")
+    parser.add_argument("log_directory", type=str, help="Katalog zawierający pliki logów treningowych.")
     parser.add_argument("--file-pattern", type=str, default="*_log.json",
-                        help="Pattern to match log files (e.g., '*_log.json'). Default is '*_log.json'.")
+                        help="Wzorzec do dopasowania plików logów (np. '*_log.json', '*_final_training_log.json'). Domyślnie: '*_log.json'.")
 
     args = parser.parse_args()
 
@@ -181,55 +232,75 @@ def main():
     file_pattern = args.file_pattern
 
     if not os.path.isdir(log_directory):
-        print(f"Error: Directory not found: {log_directory}");
+        print(f"Błąd: Katalog nie znaleziony: {log_directory}");
         return
 
     all_log_data = []
     for root, _, files in os.walk(log_directory):
         for filename in files:
-            if fnmatch.fnmatch(filename, file_pattern):
+            if fnmatch.fnmatch(filename, file_pattern) or fnmatch.fnmatch(filename,
+                                                                          "*_final_training_log.json"):  # Also match new specific names
                 log_file_path = os.path.join(root, filename)
                 try:
                     with open(log_file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                        data['__file_path__'] = log_file_path  # Store path for later reference
+                        data['__file_path__'] = log_file_path
                         all_log_data.append(data)
                 except json.JSONDecodeError:
-                    print(f"Warning: Could not decode JSON from {log_file_path}. Skipping.")
+                    print(f"Ostrzeżenie: Nie można zdekodować JSON z {log_file_path}. Pomijanie.")
                 except Exception as e:
-                    print(f"Warning: Error reading {log_file_path}: {e}. Skipping.")
+                    print(f"Ostrzeżenie: Błąd podczas czytania {log_file_path}: {e}. Pomijanie.")
 
     if not all_log_data:
-        print(f"No valid log files found in '{log_directory}' (and subdirectories) matching pattern '{file_pattern}'.")
+        print(
+            f"Nie znaleziono pasujących plików logów w '{log_directory}' (i podkatalogach) dla wzorca '{file_pattern}'.")
         return
 
-    # Group logs by model_type
     grouped_logs = defaultdict(list)
     for log_entry in all_log_data:
         model_type = log_entry.get("model_type", "Unknown_Model_Type")
-        grouped_logs[model_type].append(log_entry)
+        # Normalize model type slightly for grouping
+        if "Tuned" in model_type and "FinBench" in model_type:  # Specific to example
+            model_type_key = model_type.replace("FinBench_", "").replace("_Tuned", "")
+        elif "_Tuned" in model_type:
+            model_type_key = model_type.replace("_Tuned", "")
+        elif " (Best)" in model_type:
+            model_type_key = model_type.replace(" (Best)", "")
+        elif " (Calibrated)" in model_type:  # for SVM
+            model_type_key = model_type.replace(" (Calibrated)", "")
+        else:
+            model_type_key = model_type
+        grouped_logs[model_type_key].append(log_entry)
 
-    print(f"Found {len(all_log_data)} total log file(s), grouped into {len(grouped_logs)} model type(s).\n")
+    print(f"Znaleziono {len(all_log_data)} plików logów, pogrupowanych w {len(grouped_logs)} typów modeli.\n")
 
-    for model_type, logs_for_type in grouped_logs.items():
+    for model_type_key, logs_for_type in grouped_logs.items():
         if not logs_for_type:
             continue
 
         best_log_for_type = None
-        best_score = -float('inf')  # Initialize with a very small number
+        # Initialize with a very small number, as PR AUC is >= 0
+        best_pr_auc = -1.0
 
         for current_log in logs_for_type:
-            current_score = get_performance_score(current_log)
-            # Log the score for debugging if needed
-            # print(f"Debug: Model {model_type}, File {current_log['__file_path__']}, Score: {current_score}")
-            if current_score > best_score:
-                best_score = current_score
+            current_pr_auc = get_performance_score(current_log)
+
+            # Debugging line if needed:
+            # print(f"Debug: Model {model_type_key}, Plik {current_log['__file_path__']}, PR AUC: {current_pr_auc}")
+
+            if isinstance(current_pr_auc, float) and current_pr_auc > best_pr_auc:
+                best_pr_auc = current_pr_auc
+                best_log_for_type = current_log
+            elif best_log_for_type is None and isinstance(current_pr_auc,
+                                                          float) and current_pr_auc >= 0:  # Handle first valid log
+                best_pr_auc = current_pr_auc
                 best_log_for_type = current_log
 
         if best_log_for_type:
             print_log_summary(best_log_for_type['__file_path__'], best_log_for_type)
         else:
-            print(f"Could not determine best model for type '{model_type}' (no valid performance scores found).\n")
+            print(
+                f"Nie można było ustalić najlepszego modelu dla typu '{model_type_key}' (brak poprawnej metryki PR AUC na zbiorze testowym).\n")
 
 
 if __name__ == "__main__":

@@ -72,7 +72,7 @@ python "$FT_SCRIPT_PATH" \
     --metadata-uri "$METADATA_URI_FT" \
     --gcs-output-prefix "$RESULTS_BASE_PREFIX/ft_transformer_run_$(date +%Y%m%d_%H%M%S)" \
     --epochs 30 \
-    --n-trials 15 \
+    --n-trials 10 \
     --optimization-metric "pr_auc" \
     --batch-size-default 256 \
     --num-workers 2

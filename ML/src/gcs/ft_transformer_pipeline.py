@@ -209,12 +209,12 @@ def objective(trial, args, device, train_loader, test_loader, n_num_features, ca
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
     d_token = trial.suggest_categorical("d_token", [64, 128, 192, 256])
-    n_blocks = trial.suggest_int("n_blocks", 1, 4)
+    n_blocks = trial.suggest_int("n_blocks", 1, 2)
     attention_dropout = trial.suggest_float("attention_dropout", 0.0, 0.5)
     ffn_dropout = trial.suggest_float("ffn_dropout", 0.0, 0.5)
     residual_dropout = trial.suggest_float("residual_dropout", 0.0, 0.3)
     ffn_factor = trial.suggest_float("ffn_factor", 1.0, 2.0)  # (e.g. 4/3 for ReGLU)
-    batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
+    batch_size = trial.suggest_categorical("batch_size", [256, 512])
 
     # Recalculate ffn_d_hidden based on current trial's d_token and ffn_factor
     calculated_ffn_d_hidden = int(d_token * ffn_factor)
